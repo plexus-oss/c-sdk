@@ -27,8 +27,16 @@
 #include <string.h>
 #include <stdlib.h>
 
-/* STM32 HAL headers */
-#include "stm32f4xx_hal.h"  /* Adjust for your STM32 series */
+/* STM32 HAL headers — select the correct header for your series */
+#if defined(STM32F4)
+    #include "stm32f4xx_hal.h"
+#elif defined(STM32F7)
+    #include "stm32f7xx_hal.h"
+#elif defined(STM32H7)
+    #include "stm32h7xx_hal.h"
+#else
+    #error "Define STM32F4, STM32F7, or STM32H7 for your target series"
+#endif
 
 /* LwIP headers */
 #include "lwip/sockets.h"
@@ -192,12 +200,12 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
         return PLEXUS_ERR_HAL;
     }
 
-    /* HTTPS not supported without mbedTLS integration */
+    /* HTTPS not supported without mbedTLS integration.
+     * Refuse to silently downgrade — API keys would be sent in plaintext. */
     if (parsed.is_https) {
-#if PLEXUS_DEBUG
-        plexus_hal_log("Warning: HTTPS not supported, using HTTP");
-#endif
-        parsed.port = 80;
+        plexus_hal_log("ERROR: HTTPS not supported on STM32 without mbedTLS. "
+                       "Use an http:// endpoint or integrate mbedTLS with LwIP altcp_tls.");
+        return PLEXUS_ERR_HAL;
     }
 
     int sock = -1;
@@ -330,7 +338,9 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
     }
 
     if (parsed.is_https) {
-        parsed.port = 80;
+        plexus_hal_log("ERROR: HTTPS not supported on STM32 without mbedTLS. "
+                       "Use an http:// endpoint or integrate mbedTLS with LwIP altcp_tls.");
+        return PLEXUS_ERR_HAL;
     }
 
     int sock = -1;
@@ -519,6 +529,10 @@ uint64_t plexus_hal_get_time_ms(void) {
  */
 uint32_t plexus_hal_get_tick_ms(void) {
     return HAL_GetTick();
+}
+
+void plexus_hal_delay_ms(uint32_t ms) {
+    HAL_Delay(ms);
 }
 
 /**

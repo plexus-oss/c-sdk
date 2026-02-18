@@ -199,6 +199,10 @@ uint32_t plexus_hal_get_tick_ms(void) {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
+void plexus_hal_delay_ms(uint32_t ms) {
+    vTaskDelay(pdMS_TO_TICKS(ms));
+}
+
 void plexus_hal_log(const char* fmt, ...) {
 #if PLEXUS_DEBUG
     va_list args;

@@ -3,17 +3,11 @@
  * @brief Plexus C SDK core implementation
  */
 
-#include "plexus.h"
+#include "plexus_internal.h"
 #include <string.h>
 #include <stdlib.h>
 
-#define PLEXUS_VERSION "1.0.0"
-
-/* Forward declaration for JSON serializer */
-int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_size);
-
-/* JSON buffer to minimize stack usage (shared with plexus_commands.c) */
-char s_json_buffer[PLEXUS_JSON_BUFFER_SIZE];
+#define PLEXUS_VERSION "0.1.0"
 
 /* ------------------------------------------------------------------------- */
 /* Error messages                                                            */
@@ -35,7 +29,7 @@ static const char* s_error_messages[] = {
 };
 
 const char* plexus_strerror(plexus_err_t err) {
-    if (err < 0 || err > PLEXUS_ERR_HAL) {
+    if ((unsigned int)err >= PLEXUS_ERR__COUNT) {
         return "Unknown error";
     }
     return s_error_messages[err];
@@ -71,7 +65,7 @@ plexus_client_t* plexus_init(const char* api_key, const char* source_id) {
     strncpy(client->endpoint, PLEXUS_DEFAULT_ENDPOINT, sizeof(client->endpoint) - 1);
 
     client->metric_count = 0;
-    client->last_flush_ms = plexus_hal_get_tick_ms();  /* Initialize to current tick */
+    client->last_flush_ms = plexus_hal_get_tick_ms();
     client->total_sent = 0;
     client->total_errors = 0;
     client->initialized = true;
@@ -90,10 +84,6 @@ plexus_client_t* plexus_init(const char* api_key, const char* source_id) {
 
 void plexus_free(plexus_client_t* client) {
     if (client) {
-        /* Attempt to flush remaining metrics */
-        if (client->metric_count > 0) {
-            plexus_flush(client);
-        }
         client->initialized = false;
         free(client);
     }
@@ -111,6 +101,28 @@ plexus_err_t plexus_set_endpoint(plexus_client_t* client, const char* endpoint) 
     }
 
     strncpy(client->endpoint, endpoint, sizeof(client->endpoint) - 1);
+    return PLEXUS_OK;
+}
+
+plexus_err_t plexus_set_flush_interval(plexus_client_t* client, uint32_t interval_ms) {
+    if (!client) {
+        return PLEXUS_ERR_NULL_PTR;
+    }
+    if (!client->initialized) {
+        return PLEXUS_ERR_NOT_INITIALIZED;
+    }
+    client->flush_interval_ms = interval_ms;
+    return PLEXUS_OK;
+}
+
+plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count) {
+    if (!client) {
+        return PLEXUS_ERR_NULL_PTR;
+    }
+    if (!client->initialized) {
+        return PLEXUS_ERR_NOT_INITIALIZED;
+    }
+    client->auto_flush_count = count;
     return PLEXUS_OK;
 }
 
@@ -152,23 +164,26 @@ static plexus_err_t add_metric(plexus_client_t* client, const char* metric,
 #endif
 
     /* Auto-flush if buffer reaches threshold */
-#if PLEXUS_AUTO_FLUSH_COUNT > 0
-    if (client->metric_count >= PLEXUS_AUTO_FLUSH_COUNT) {
-        return plexus_flush(client);
-    }
-#endif
-
-    /* Auto-flush if time interval has elapsed */
-#if PLEXUS_AUTO_FLUSH_INTERVAL_MS > 0
     {
-        uint32_t now_ms = plexus_hal_get_tick_ms();
-        uint32_t elapsed = now_ms - client->last_flush_ms;
-        /* Handle tick overflow (now_ms < last_flush_ms) */
-        if (elapsed >= PLEXUS_AUTO_FLUSH_INTERVAL_MS || now_ms < client->last_flush_ms) {
+        uint16_t flush_count = client->auto_flush_count > 0
+            ? client->auto_flush_count : PLEXUS_AUTO_FLUSH_COUNT;
+        if (flush_count > 0 && client->metric_count >= flush_count) {
             return plexus_flush(client);
         }
     }
-#endif
+
+    /* Auto-flush if time interval has elapsed */
+    {
+        uint32_t interval = client->flush_interval_ms > 0
+            ? client->flush_interval_ms : PLEXUS_AUTO_FLUSH_INTERVAL_MS;
+        if (interval > 0) {
+            uint32_t now_ms = plexus_hal_get_tick_ms();
+            uint32_t elapsed = now_ms - client->last_flush_ms;
+            if (elapsed >= interval || now_ms < client->last_flush_ms) {
+                return plexus_flush(client);
+            }
+        }
+    }
 
     return PLEXUS_OK;
 }
@@ -216,27 +231,65 @@ plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metr
     if (!client->initialized) {
         return PLEXUS_ERR_NOT_INITIALIZED;
     }
+    if (strlen(metric) >= PLEXUS_MAX_METRIC_NAME_LEN) {
+        return PLEXUS_ERR_STRING_TOO_LONG;
+    }
     if (client->metric_count >= PLEXUS_MAX_METRICS) {
         return PLEXUS_ERR_BUFFER_FULL;
     }
     if (tag_count > 4) {
-        tag_count = 4;  /* Limit to 4 tags */
+        tag_count = 4;
     }
 
-    plexus_value_t v = { .type = PLEXUS_VALUE_NUMBER, .data.number = value };
-    plexus_err_t err = add_metric(client, metric, &v, 0);
-    if (err != PLEXUS_OK) {
-        return err;
-    }
+    /* Build the metric entry directly instead of using add_metric, because
+     * add_metric may trigger auto-flush which resets metric_count to 0.
+     * If we applied tags after add_metric, metrics[metric_count - 1] would
+     * wrap to UINT16_MAX — an out-of-bounds write. */
+    plexus_metric_t* m = &client->metrics[client->metric_count];
+    memset(m, 0, sizeof(plexus_metric_t));
 
-    /* Add tags to the just-added metric */
-    plexus_metric_t* m = &client->metrics[client->metric_count - 1];
+    strncpy(m->name, metric, PLEXUS_MAX_METRIC_NAME_LEN - 1);
+    m->value.type = PLEXUS_VALUE_NUMBER;
+    m->value.data.number = value;
+    m->timestamp_ms = plexus_hal_get_time_ms();
+
+    /* Apply tags before incrementing metric_count */
     m->tag_count = tag_count;
-
     for (uint8_t i = 0; i < tag_count && tag_keys && tag_values; i++) {
         if (tag_keys[i] && tag_values[i]) {
             strncpy(m->tag_keys[i], tag_keys[i], 31);
+            m->tag_keys[i][31] = '\0';
             strncpy(m->tag_values[i], tag_values[i], 31);
+            m->tag_values[i][31] = '\0';
+        }
+    }
+
+    client->metric_count++;
+
+#if PLEXUS_DEBUG
+    plexus_hal_log("Queued metric: %s (total: %d, tags: %d)",
+                   metric, client->metric_count, tag_count);
+#endif
+
+    /* Auto-flush if buffer reaches threshold */
+    {
+        uint16_t flush_count = client->auto_flush_count > 0
+            ? client->auto_flush_count : PLEXUS_AUTO_FLUSH_COUNT;
+        if (flush_count > 0 && client->metric_count >= flush_count) {
+            return plexus_flush(client);
+        }
+    }
+
+    /* Auto-flush if time interval has elapsed */
+    {
+        uint32_t interval = client->flush_interval_ms > 0
+            ? client->flush_interval_ms : PLEXUS_AUTO_FLUSH_INTERVAL_MS;
+        if (interval > 0) {
+            uint32_t now_ms = plexus_hal_get_tick_ms();
+            uint32_t elapsed = now_ms - client->last_flush_ms;
+            if (elapsed >= interval || now_ms < client->last_flush_ms) {
+                return plexus_flush(client);
+            }
         }
     }
 
@@ -261,27 +314,26 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
     {
         size_t stored_len = 0;
         plexus_err_t restore_err = plexus_hal_storage_read(
-            "plexus_buf", s_json_buffer, PLEXUS_JSON_BUFFER_SIZE, &stored_len);
+            "plexus_buf", client->json_buffer, PLEXUS_JSON_BUFFER_SIZE, &stored_len);
         if (restore_err == PLEXUS_OK && stored_len > 0) {
 #if PLEXUS_DEBUG
             plexus_hal_log("Restoring %zu bytes from persistent buffer", stored_len);
 #endif
             plexus_err_t send_err = plexus_hal_http_post(
-                client->endpoint, client->api_key, s_json_buffer, stored_len);
+                client->endpoint, client->api_key, client->json_buffer, stored_len);
             if (send_err == PLEXUS_OK) {
                 plexus_hal_storage_clear("plexus_buf");
             }
-            /* If send failed, leave it in storage for next attempt */
         }
     }
-#endif /* PLEXUS_ENABLE_PERSISTENT_BUFFER */
+#endif
 
     if (client->metric_count == 0) {
         return PLEXUS_ERR_NO_DATA;
     }
 
     /* Serialize to JSON */
-    int json_len = plexus_json_serialize(client, s_json_buffer, PLEXUS_JSON_BUFFER_SIZE);
+    int json_len = plexus_json_serialize(client, client->json_buffer, PLEXUS_JSON_BUFFER_SIZE);
     if (json_len < 0) {
         client->total_errors++;
         return PLEXUS_ERR_JSON;
@@ -291,14 +343,17 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
     plexus_hal_log("Sending %d metrics (%d bytes)", client->metric_count, json_len);
 #endif
 
-    /* Send with retries */
+    /* Send with retries and delay */
     plexus_err_t err = PLEXUS_ERR_NETWORK;
     for (int retry = 0; retry < PLEXUS_MAX_RETRIES; retry++) {
+        if (retry > 0) {
+            plexus_hal_delay_ms(PLEXUS_RETRY_DELAY_MS);
+        }
+
         err = plexus_hal_http_post(client->endpoint, client->api_key,
-                                    s_json_buffer, (size_t)json_len);
+                                    client->json_buffer, (size_t)json_len);
 
         if (err == PLEXUS_OK) {
-            /* Success - clear buffer */
             client->total_sent += client->metric_count;
             client->metric_count = 0;
             client->last_flush_ms = plexus_hal_get_tick_ms();
@@ -314,17 +369,14 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
         plexus_hal_log("Retry %d/%d after error: %s", retry + 1, PLEXUS_MAX_RETRIES,
                        plexus_strerror(err));
 #endif
-
-        /* Wait before retry (HAL should provide delay, or we just continue) */
     }
 
 #if PLEXUS_ENABLE_PERSISTENT_BUFFER
-    /* All retries failed — persist to flash so data survives reboot */
-    plexus_hal_storage_write("plexus_buf", s_json_buffer, (size_t)json_len);
+    plexus_hal_storage_write("plexus_buf", client->json_buffer, (size_t)json_len);
 #if PLEXUS_DEBUG
     plexus_hal_log("Persisted %d bytes to flash buffer", json_len);
 #endif
-#endif /* PLEXUS_ENABLE_PERSISTENT_BUFFER */
+#endif
 
     client->total_errors++;
     return err;
@@ -343,6 +395,20 @@ void plexus_clear(plexus_client_t* client) {
     }
 }
 
+uint32_t plexus_total_sent(const plexus_client_t* client) {
+    if (!client || !client->initialized) {
+        return 0;
+    }
+    return client->total_sent;
+}
+
+uint32_t plexus_total_errors(const plexus_client_t* client) {
+    if (!client || !client->initialized) {
+        return 0;
+    }
+    return client->total_errors;
+}
+
 plexus_err_t plexus_tick(plexus_client_t* client) {
     if (!client) {
         return PLEXUS_ERR_NULL_PTR;
@@ -352,7 +418,6 @@ plexus_err_t plexus_tick(plexus_client_t* client) {
     }
 
 #if PLEXUS_ENABLE_COMMANDS
-    /* Check if command polling interval has elapsed */
     if (client->command_handler) {
         uint32_t now_ms = plexus_hal_get_tick_ms();
         uint32_t cmd_elapsed = now_ms - client->last_command_poll_ms;
@@ -364,22 +429,22 @@ plexus_err_t plexus_tick(plexus_client_t* client) {
     }
 #endif
 
-    /* Check if we have data and time interval has elapsed */
     if (client->metric_count == 0) {
         return PLEXUS_ERR_NO_DATA;
     }
 
-#if PLEXUS_AUTO_FLUSH_INTERVAL_MS > 0
     {
-        uint32_t now_ms = plexus_hal_get_tick_ms();
-        uint32_t elapsed = now_ms - client->last_flush_ms;
+        uint32_t interval = client->flush_interval_ms > 0
+            ? client->flush_interval_ms : PLEXUS_AUTO_FLUSH_INTERVAL_MS;
+        if (interval > 0) {
+            uint32_t now_ms = plexus_hal_get_tick_ms();
+            uint32_t elapsed = now_ms - client->last_flush_ms;
 
-        /* Flush if interval elapsed or tick counter wrapped */
-        if (elapsed >= PLEXUS_AUTO_FLUSH_INTERVAL_MS || now_ms < client->last_flush_ms) {
-            return plexus_flush(client);
+            if (elapsed >= interval || now_ms < client->last_flush_ms) {
+                return plexus_flush(client);
+            }
         }
     }
-#endif
 
     return PLEXUS_OK;
 }

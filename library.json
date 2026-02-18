@@ -1,6 +1,6 @@
 {
   "name": "plexus-sdk",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Minimal footprint C SDK for sending telemetry to Plexus from ESP32, STM32, and Arduino devices",
   "keywords": [
     "telemetry",
@@ -14,7 +14,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/plexus/plexus-oss.git"
+    "url": "https://github.com/plexus-oss/c-sdk.git"
   },
   "authors": [
     {
@@ -22,7 +22,7 @@
       "url": "https://plexus.company"
     }
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://plexus.company",
   "frameworks": [
     "arduino",
@@ -30,8 +30,7 @@
   ],
   "platforms": [
     "espressif32",
-    "espressif8266",
-    "ststm32"
+    "espressif8266"
   ],
   "headers": "plexus.h",
   "build": {

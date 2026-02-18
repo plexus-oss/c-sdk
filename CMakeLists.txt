@@ -20,9 +20,12 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
         SRCS
             "src/plexus.c"
             "src/plexus_json.c"
+            "src/plexus_commands.c"
             "hal/esp32/plexus_hal_esp32.c"
+            "hal/esp32/plexus_hal_storage_esp32.c"
         INCLUDE_DIRS
             "include"
+            "src"
         REQUIRES
             esp_http_client
             esp_timer
@@ -32,7 +35,7 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
 endif()
 
 # Standalone CMake build
-project(plexus-sdk VERSION 1.0.0 LANGUAGES C CXX)
+project(plexus-sdk VERSION 0.1.0 LANGUAGES C CXX)
 
 # Options
 option(PLEXUS_BUILD_EXAMPLES "Build example applications" OFF)
@@ -46,11 +49,13 @@ set_property(CACHE PLEXUS_PLATFORM PROPERTY STRINGS esp32 stm32 generic arduino)
 set(PLEXUS_SOURCES
     src/plexus.c
     src/plexus_json.c
+    src/plexus_commands.c
 )
 
 # Platform-specific HAL
 if(PLEXUS_PLATFORM STREQUAL "esp32")
     list(APPEND PLEXUS_SOURCES hal/esp32/plexus_hal_esp32.c)
+    list(APPEND PLEXUS_SOURCES hal/esp32/plexus_hal_storage_esp32.c)
 elseif(PLEXUS_PLATFORM STREQUAL "stm32")
     list(APPEND PLEXUS_SOURCES hal/stm32/plexus_hal_stm32.c)
 elseif(PLEXUS_PLATFORM STREQUAL "arduino")
@@ -66,6 +71,10 @@ add_library(plexus STATIC ${PLEXUS_SOURCES})
 target_include_directories(plexus PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+)
+
+target_include_directories(plexus PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 # Compile definitions

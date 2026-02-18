@@ -1,0 +1,21 @@
+version: "0.1.0"
+description: "Minimal footprint C SDK for sending telemetry to Plexus from ESP32 devices"
+url: "https://github.com/plexus-oss/c-sdk"
+repository: "https://github.com/plexus-oss/c-sdk.git"
+license: "Apache-2.0"
+
+targets:
+  - esp32
+  - esp32s2
+  - esp32s3
+  - esp32c3
+
+dependencies:
+  idf:
+    version: ">=5.0"
+  esp_http_client:
+    version: "*"
+  esp_timer:
+    version: "*"
+  nvs_flash:
+    version: "*"

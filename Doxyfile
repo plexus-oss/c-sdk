@@ -1,0 +1,52 @@
+# Doxyfile for Plexus C SDK
+#
+# Generate: doxygen Doxyfile
+# View:     open docs/html/index.html
+
+PROJECT_NAME           = "Plexus C SDK"
+PROJECT_NUMBER         = 0.1.0
+PROJECT_BRIEF          = "Minimal footprint telemetry client for embedded devices"
+
+OUTPUT_DIRECTORY       = docs/
+INPUT                  = include/ src/ hal/ examples/
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.c *.cpp *.ino
+
+USE_MDFILE_AS_MAINPAGE = README.md
+
+# C-specific settings
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+
+# Expand all optional feature macros so conditional APIs are documented
+PREDEFINED             = PLEXUS_ENABLE_TAGS=1 \
+                         PLEXUS_ENABLE_STRING_VALUES=1 \
+                         PLEXUS_ENABLE_BOOL_VALUES=1 \
+                         PLEXUS_ENABLE_COMMANDS=1 \
+                         PLEXUS_ENABLE_PERSISTENT_BUFFER=1 \
+                         PLEXUS_DEBUG=1 \
+                         ARDUINO \
+                         ESP32 \
+                         STM32F4
+
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+
+# Output formats
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+
+# Source browsing
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = NO
+
+# Warnings
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+
+# Exclude build artifacts and test mocks
+EXCLUDE_PATTERNS       = */build*/* */node_modules/*
+EXCLUDE                = tests/mock_hal.c

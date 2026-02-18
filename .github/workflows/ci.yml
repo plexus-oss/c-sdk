@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plexus-oss/c-sdk/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plexus-oss/c-sdk/**'
+
+defaults:
+  run:
+    working-directory: plexus-oss/c-sdk
+
+jobs:
+  host-tests:
+    name: Host Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build tests
+        run: |
+          cmake -B build-test tests/
+          cmake --build build-test/
+
+      - name: Run test_core
+        run: ./build-test/test_core
+
+      - name: Run test_json
+        run: ./build-test/test_json
+
+  pio-esp32-arduino:
+    name: PlatformIO ESP32 (Arduino)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-esp32-${{ hashFiles('plexus-oss/c-sdk/platformio.ini') }}
+          restore-keys: pio-esp32-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build ESP32 Arduino
+        run: |
+          pio ci examples/arduino_basic/plexus_example.ino \
+            --lib=. \
+            --board=esp32dev \
+            --project-option="framework=arduino"
+
+  pio-esp8266:
+    name: PlatformIO ESP8266 (Arduino)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-esp8266-${{ hashFiles('plexus-oss/c-sdk/platformio.ini') }}
+          restore-keys: pio-esp8266-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build ESP8266 Arduino
+        run: |
+          pio ci examples/arduino_basic/plexus_example.ino \
+            --lib=. \
+            --board=nodemcuv2 \
+            --project-option="framework=arduino"
+
+  pio-stm32:
+    name: PlatformIO STM32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-stm32-${{ hashFiles('plexus-oss/c-sdk/platformio.ini') }}
+          restore-keys: pio-stm32-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build STM32
+        run: |
+          pio ci \
+            examples/stm32_freertos/main.c \
+            src/plexus.c \
+            src/plexus_json.c \
+            src/plexus_commands.c \
+            hal/stm32/plexus_hal_stm32.c \
+            --board=nucleo_f446re \
+            --project-option="framework=stm32cube" \
+            --project-option="build_flags=-DSTM32F4 -DSTM32_HAL -Iinclude -Isrc"

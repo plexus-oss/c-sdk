@@ -30,6 +30,10 @@
 #define PLEXUS_MAX_API_KEY_LEN 128     /* Max API key length */
 #endif
 
+#ifndef PLEXUS_MAX_ENDPOINT_LEN
+#define PLEXUS_MAX_ENDPOINT_LEN 256    /* Max endpoint URL length */
+#endif
+
 #ifndef PLEXUS_JSON_BUFFER_SIZE
 #define PLEXUS_JSON_BUFFER_SIZE 2048   /* JSON serialization buffer */
 #endif

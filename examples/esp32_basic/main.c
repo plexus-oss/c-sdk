@@ -2,16 +2,19 @@
  * @file main.c
  * @brief Basic ESP32 example for Plexus C SDK
  *
+ * Quick start (< 10 minutes):
+ *   1. Get your API key from https://app.plexus.company/settings/api-keys
+ *   2. Set WIFI_SSID, WIFI_PASSWORD, and PLEXUS_API_KEY below
+ *   3. Build and flash:
+ *        idf.py build flash monitor       (ESP-IDF)
+ *        pio run -t upload -t monitor      (PlatformIO)
+ *   4. Watch telemetry appear in your Plexus dashboard
+ *
  * This example demonstrates:
- * - WiFi connection
+ * - WiFi connection with reconnect handling
  * - NTP time synchronization
  * - Sending telemetry to Plexus
- *
- * Build with ESP-IDF:
- *   idf.py build flash monitor
- *
- * Or with PlatformIO:
- *   pio run -t upload -t monitor
+ * - Persistent buffering (survives reboots)
  */
 
 #include <stdio.h>
@@ -38,6 +41,9 @@
 
 /* Optional: custom endpoint */
 /* #define PLEXUS_ENDPOINT "https://your-domain.com/api/ingest" */
+
+/* Enable persistent buffering so unsent data survives reboots */
+#define PLEXUS_ENABLE_PERSISTENT_BUFFER 1
 
 /* ========================================================================= */
 /* WiFi connection                                                           */
@@ -177,10 +183,22 @@ void app_main(void) {
     plexus_set_endpoint(plexus, PLEXUS_ENDPOINT);
 #endif
 
+    /* Configure auto-flush: send every 5 seconds or every 16 metrics */
+    plexus_set_flush_interval(plexus, 5000);
+
     ESP_LOGI(TAG, "Starting telemetry loop...");
 
-    /* Main loop - send telemetry every 5 seconds */
+    /* Main loop - read sensors frequently, let plexus_tick() handle flushing */
     while (1) {
+        /* Reconnect WiFi if disconnected */
+        if (esp_wifi_connect() == ESP_ERR_WIFI_NOT_CONNECT) {
+            ESP_LOGW(TAG, "WiFi disconnected, reconnecting...");
+            s_retry_num = 0;
+            esp_wifi_connect();
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            continue;
+        }
+
         float temp = read_temperature();
         float humidity = read_humidity();
         float pressure = read_pressure();
@@ -213,18 +231,16 @@ void app_main(void) {
         plexus_send_number_tagged(plexus, "room_temp", temp, tag_keys, tag_values, 2);
 #endif
 
-        /* Flush all queued metrics */
-        ESP_LOGI(TAG, "Flushing %d metrics...", plexus_pending_count(plexus));
-        err = plexus_flush(plexus);
-
-        if (err == PLEXUS_OK) {
-            ESP_LOGI(TAG, "Telemetry sent successfully");
-        } else {
-            ESP_LOGE(TAG, "Failed to send telemetry: %s", plexus_strerror(err));
+        /* Let plexus_tick() handle time-based auto-flush.
+         * This flushes automatically when the interval elapses,
+         * so you don't need to call plexus_flush() manually. */
+        err = plexus_tick(plexus);
+        if (err != PLEXUS_OK && err != PLEXUS_ERR_NO_DATA) {
+            ESP_LOGE(TAG, "Tick error: %s", plexus_strerror(err));
         }
 
         /* Wait before next reading */
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
     /* Cleanup (never reached in this example) */

@@ -166,6 +166,10 @@ uint32_t plexus_hal_get_tick_ms(void) {
     return (uint32_t)millis();
 }
 
+void plexus_hal_delay_ms(uint32_t ms) {
+    delay(ms);
+}
+
 void plexus_hal_log(const char* fmt, ...) {
 #if PLEXUS_DEBUG
     char buf[256];
@@ -234,6 +238,20 @@ public:
     plexus_err_t setEndpoint(const char* endpoint) {
         return plexus_set_endpoint(_client, endpoint);
     }
+
+    plexus_err_t setFlushInterval(uint32_t interval_ms) {
+        return plexus_set_flush_interval(_client, interval_ms);
+    }
+
+    plexus_err_t setFlushCount(uint16_t count) {
+        return plexus_set_flush_count(_client, count);
+    }
+
+    plexus_err_t tick() {
+        return plexus_tick(_client);
+    }
+
+    plexus_client_t* handle() { return _client; }
 
 private:
     plexus_client_t* _client;

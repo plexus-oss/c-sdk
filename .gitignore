@@ -1,0 +1,22 @@
+# Build artifacts
+build-test/
+build/
+
+# Doxygen output
+docs/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

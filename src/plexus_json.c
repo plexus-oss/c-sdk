@@ -6,7 +6,7 @@
  * Only generates the specific JSON format needed for the ingest API.
  */
 
-#include "plexus.h"
+#include "plexus_internal.h"
 #include <string.h>
 #include <stdio.h>
 
