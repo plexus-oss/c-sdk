@@ -16,14 +16,18 @@ extern void mock_hal_reset(void);
 
 static int tests_passed = 0;
 static int tests_failed = 0;
+static int s_test_failed_flag = 0;
 
 #define TEST(name) static void test_##name(void)
 #define RUN(name) do { \
     printf("  %-50s", #name); \
     mock_hal_reset(); \
+    s_test_failed_flag = 0; \
     test_##name(); \
-    tests_passed++; \
-    printf("PASS\n"); \
+    if (!s_test_failed_flag) { \
+        tests_passed++; \
+        printf("PASS\n"); \
+    } \
 } while(0)
 
 #define ASSERT(cond) do { \
@@ -31,6 +35,7 @@ static int tests_failed = 0;
         printf("FAIL\n    assertion failed: %s\n    at %s:%d\n", \
                #cond, __FILE__, __LINE__); \
         tests_failed++; \
+        s_test_failed_flag = 1; \
         return; \
     } \
 } while(0)

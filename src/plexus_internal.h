@@ -18,6 +18,12 @@
 /* Internal function declarations                                            */
 /* ------------------------------------------------------------------------- */
 
+/**
+ * Validate that a string contains only URL-safe characters: [a-zA-Z0-9._-]
+ * Used for source_id validation and command ID validation to prevent URL injection.
+ */
+bool plexus_internal_is_url_safe(const char* s);
+
 int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_size);
 
 #if PLEXUS_ENABLE_COMMANDS

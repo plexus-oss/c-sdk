@@ -1,5 +1,0 @@
-/Users/annschulte/Desktop/plexus/plexus-oss/c-sdk/build-test-san/CMakeFiles/test_core.dir
-/Users/annschulte/Desktop/plexus/plexus-oss/c-sdk/build-test-san/CMakeFiles/test_json.dir
-/Users/annschulte/Desktop/plexus/plexus-oss/c-sdk/build-test-san/CMakeFiles/test.dir
-/Users/annschulte/Desktop/plexus/plexus-oss/c-sdk/build-test-san/CMakeFiles/edit_cache.dir
-/Users/annschulte/Desktop/plexus/plexus-oss/c-sdk/build-test-san/CMakeFiles/rebuild_cache.dir

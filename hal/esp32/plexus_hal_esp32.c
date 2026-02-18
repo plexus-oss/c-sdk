@@ -88,6 +88,7 @@ typedef struct {
     char* buf;
     size_t buf_size;
     size_t pos;
+    bool truncated;
 } http_get_ctx_t;
 
 static esp_err_t http_get_event_handler(esp_http_client_event_t *evt) {
@@ -95,10 +96,23 @@ static esp_err_t http_get_event_handler(esp_http_client_event_t *evt) {
 
     switch(evt->event_id) {
         case HTTP_EVENT_ON_DATA:
+            if (ctx->truncated) {
+                break; /* Already overflowed, discard rest */
+            }
             if (ctx->pos + evt->data_len < ctx->buf_size) {
                 memcpy(ctx->buf + ctx->pos, evt->data, evt->data_len);
                 ctx->pos += evt->data_len;
                 ctx->buf[ctx->pos] = '\0';
+            } else {
+                /* Copy what fits, mark as truncated */
+                size_t remaining = ctx->buf_size - 1 - ctx->pos;
+                if (remaining > 0) {
+                    memcpy(ctx->buf + ctx->pos, evt->data, remaining);
+                    ctx->pos += remaining;
+                    ctx->buf[ctx->pos] = '\0';
+                }
+                ctx->truncated = true;
+                ESP_LOGW("plexus", "HTTP GET response truncated (buffer full)");
             }
             break;
         default:
@@ -121,6 +135,7 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
         .buf = response_buf,
         .buf_size = buf_size,
         .pos = 0,
+        .truncated = false,
     };
 
     esp_http_client_config_t config = {

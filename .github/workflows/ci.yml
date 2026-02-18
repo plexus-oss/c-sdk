@@ -3,16 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'plexus-oss/c-sdk/**'
   pull_request:
     branches: [main]
-    paths:
-      - 'plexus-oss/c-sdk/**'
-
-defaults:
-  run:
-    working-directory: plexus-oss/c-sdk
 
 jobs:
   host-tests:
@@ -58,7 +50,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-esp32-${{ hashFiles('plexus-oss/c-sdk/platformio.ini') }}
+          key: pio-esp32-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-esp32-
 
       - name: Install PlatformIO
@@ -86,7 +78,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-esp8266-${{ hashFiles('plexus-oss/c-sdk/platformio.ini') }}
+          key: pio-esp8266-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-esp8266-
 
       - name: Install PlatformIO
@@ -114,7 +106,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-stm32-${{ hashFiles('plexus-oss/c-sdk/platformio.ini') }}
+          key: pio-stm32-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-stm32-
 
       - name: Install PlatformIO

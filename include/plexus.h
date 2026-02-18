@@ -30,7 +30,7 @@ extern "C" {
 /* Version                                                                   */
 /* ------------------------------------------------------------------------- */
 
-#define PLEXUS_SDK_VERSION "0.2.0"
+#define PLEXUS_SDK_VERSION "0.2.1"
 
 /* ------------------------------------------------------------------------- */
 /* Compiler attributes                                                       */
@@ -39,8 +39,10 @@ extern "C" {
 #if defined(__GNUC__) || defined(__clang__)
 #define PLEXUS_PRINTF_FMT(fmt_idx, arg_idx) \
     __attribute__((format(printf, fmt_idx, arg_idx)))
+#define PLEXUS_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
 #else
 #define PLEXUS_PRINTF_FMT(fmt_idx, arg_idx)
+#define PLEXUS_WARN_UNUSED_RESULT
 #endif
 
 /* ------------------------------------------------------------------------- */
@@ -101,8 +103,8 @@ typedef struct {
     plexus_value_t value;
     uint64_t timestamp_ms;
 #if PLEXUS_ENABLE_TAGS
-    char tag_keys[4][32];
-    char tag_values[4][32];
+    char tag_keys[PLEXUS_MAX_TAGS][PLEXUS_MAX_TAG_LEN];
+    char tag_values[PLEXUS_MAX_TAGS][PLEXUS_MAX_TAG_LEN];
     uint8_t tag_count;
 #endif
 } plexus_metric_t;
@@ -202,11 +204,15 @@ plexus_client_t* plexus_init(const char* api_key, const char* source_id);
 /**
  * Initialize a Plexus client in user-provided memory (no malloc).
  *
- * The buffer must be at least sizeof(plexus_client_t) bytes and remain
- * valid for the lifetime of the client. Do NOT call plexus_free() on a
- * statically initialized client.
+ * The buffer must be at least sizeof(plexus_client_t) bytes, correctly
+ * aligned, and remain valid for the lifetime of the client.
+ * Use PLEXUS_CLIENT_STATIC_BUF() for guaranteed correct size and alignment.
+ * Returns NULL if the buffer is too small or misaligned.
  *
- * @param buf       Buffer (at least PLEXUS_CLIENT_STATIC_SIZE bytes)
+ * plexus_free() is safe on static clients — it marks them uninitialized
+ * but does not call free().
+ *
+ * @param buf       Buffer (at least PLEXUS_CLIENT_STATIC_SIZE bytes, pointer-aligned)
  * @param buf_size  Size of the provided buffer
  * @param api_key   Your Plexus API key
  * @param source_id Device identifier (same restrictions as plexus_init)
@@ -239,6 +245,7 @@ void plexus_free(plexus_client_t* client);
  * @param endpoint Full URL (e.g., "https://custom.domain/api/ingest")
  * @return         PLEXUS_OK on success
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_set_endpoint(plexus_client_t* client, const char* endpoint);
 
 /**
@@ -248,6 +255,7 @@ plexus_err_t plexus_set_endpoint(plexus_client_t* client, const char* endpoint);
  * @param interval_ms Flush interval in milliseconds (0 = disable)
  * @return            PLEXUS_OK on success
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_set_flush_interval(plexus_client_t* client, uint32_t interval_ms);
 
 /**
@@ -257,6 +265,7 @@ plexus_err_t plexus_set_flush_interval(plexus_client_t* client, uint32_t interva
  * @param count  Flush after this many queued metrics (0 = disable)
  * @return       PLEXUS_OK on success
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count);
 
 /* ------------------------------------------------------------------------- */
@@ -271,6 +280,7 @@ plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count);
  * @param value  Numeric value
  * @return       PLEXUS_OK, or PLEXUS_ERR_BUFFER_FULL if buffer full
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_send_number(plexus_client_t* client, const char* metric, double value);
 
 /**
@@ -293,6 +303,7 @@ plexus_err_t plexus_send_number(plexus_client_t* client, const char* metric, dou
  * @param timestamp_ms Unix timestamp in milliseconds
  * @return             PLEXUS_OK on success
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_send_number_ts(plexus_client_t* client, const char* metric,
                                     double value, uint64_t timestamp_ms);
 
@@ -305,6 +316,7 @@ plexus_err_t plexus_send_number_ts(plexus_client_t* client, const char* metric,
  * @param value  String value
  * @return       PLEXUS_OK on success
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_send_string(plexus_client_t* client, const char* metric, const char* value);
 #endif
 
@@ -317,6 +329,7 @@ plexus_err_t plexus_send_string(plexus_client_t* client, const char* metric, con
  * @param value  Boolean value
  * @return       PLEXUS_OK on success
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_send_bool(plexus_client_t* client, const char* metric, bool value);
 #endif
 
@@ -332,6 +345,7 @@ plexus_err_t plexus_send_bool(plexus_client_t* client, const char* metric, bool 
  * @param tag_count  Number of tags (max 4)
  * @return           PLEXUS_OK on success
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metric,
                                         double value, const char** tag_keys,
                                         const char** tag_values, uint8_t tag_count);
@@ -355,6 +369,7 @@ plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metr
  * @param client Plexus client
  * @return       PLEXUS_OK on success, error code on failure
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_flush(plexus_client_t* client);
 
 /**
@@ -367,6 +382,7 @@ plexus_err_t plexus_flush(plexus_client_t* client);
  * @param client Plexus client
  * @return       PLEXUS_OK on success or idle
  */
+PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_tick(plexus_client_t* client);
 
 /** Get number of queued metrics. */
@@ -401,7 +417,7 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client);
 /** Get human-readable error message. */
 const char* plexus_strerror(plexus_err_t err);
 
-/** Get SDK version string (e.g., "0.2.0"). */
+/** Get SDK version string (e.g., "0.2.1"). */
 const char* plexus_version(void);
 
 /* ------------------------------------------------------------------------- */

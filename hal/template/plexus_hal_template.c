@@ -59,7 +59,7 @@
  *
  * @param url        Full URL (e.g., "https://app.plexus.company/api/ingest")
  * @param api_key    API key string for the x-api-key header
- * @param user_agent User-Agent header value (e.g., "plexus-c-sdk/0.2.0")
+ * @param user_agent User-Agent header value (e.g., "plexus-c-sdk/0.2.1")
  * @param body       JSON request body (null-terminated)
  * @param body_len   Length of body in bytes (excluding null terminator)
  * @return           PLEXUS_OK on success, error code on failure

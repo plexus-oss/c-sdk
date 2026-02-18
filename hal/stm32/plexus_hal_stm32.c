@@ -26,6 +26,12 @@
  *   4. Load the server's root CA certificate for verification
  *
  * Alternatively, use a TLS-terminating proxy on your network edge.
+ *
+ * *** SECURITY WARNING ***
+ * Without TLS, the API key is transmitted in cleartext. Do NOT use plain
+ * HTTP on untrusted networks. Either integrate mbedTLS or use a
+ * TLS-terminating proxy. Set the endpoint to an http:// URL explicitly
+ * to acknowledge this risk.
  */
 
 #include "plexus.h"
@@ -48,10 +54,30 @@
     #error "Define STM32F4, STM32F7, or STM32H7 for your target series"
 #endif
 
+/* FreeRTOS detection — use osDelay() to yield CPU instead of busy-waiting */
+#if __has_include("cmsis_os.h")
+    #include "cmsis_os.h"
+    #define PLEXUS_HAS_FREERTOS 1
+#elif __has_include("cmsis_os2.h")
+    #include "cmsis_os2.h"
+    #define PLEXUS_HAS_FREERTOS 1
+#elif defined(INCLUDE_vTaskDelay) || defined(configUSE_PREEMPTION)
+    #include "FreeRTOS.h"
+    #include "task.h"
+    #define PLEXUS_HAS_FREERTOS 1
+#else
+    #define PLEXUS_HAS_FREERTOS 0
+#endif
+
 /* LwIP headers */
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
+
+/* HTTP header buffer must fit: method + path + host + api_key + user-agent + fixed text.
+ * Worst case: ~140 bytes fixed text + path(256) + host(128) + api_key(128) + UA(~30) = ~682.
+ * Round up to 768 for headroom. */
+#define PLEXUS_STM32_HEADER_BUF_SIZE 768
 
 /* Configurable peripheral handles.
  * Override these with -DPLEXUS_STM32_DEBUG_UART=huart3 etc. in your build. */
@@ -114,7 +140,11 @@ static int parse_url(const char* url, parsed_url_t* result) {
 
     if (*p == ':') {
         p++;
-        result->port = (uint16_t)atoi(p);
+        long port = strtol(p, NULL, 10);
+        if (port <= 0 || port > 65535) {
+            return -1;
+        }
+        result->port = (uint16_t)port;
         while (*p && *p != '/') {
             p++;
         }
@@ -122,6 +152,7 @@ static int parse_url(const char* url, parsed_url_t* result) {
 
     if (*p == '/') {
         strncpy(result->path, p, sizeof(result->path) - 1);
+        result->path[sizeof(result->path) - 1] = '\0';
     } else {
         strcpy(result->path, "/");
     }
@@ -129,41 +160,102 @@ static int parse_url(const char* url, parsed_url_t* result) {
     return 0;
 }
 
-static int read_http_status(int sock) {
-    char buf[256];
-    int total_read = 0;
-
-    while (total_read < (int)sizeof(buf) - 1) {
-        int n = lwip_recv(sock, buf + total_read, 1, 0);
+/**
+ * Send all bytes on a stream socket, handling partial writes.
+ * Returns 0 on success, -1 on error.
+ */
+static int send_all(int sock, const char* data, size_t len) {
+    size_t sent = 0;
+    while (sent < len) {
+        int n = lwip_send(sock, data + sent, len - sent, 0);
         if (n <= 0) {
-            break;
+            return -1;
         }
-        total_read += n;
+        sent += (size_t)n;
+    }
+    return 0;
+}
 
-        if (total_read >= 4 && buf[total_read - 1] == '\n') {
-            break;
-        }
+/**
+ * Resolve hostname using getaddrinfo (thread-safe, unlike gethostbyname).
+ * Connects socket and returns it. Returns -1 on failure.
+ */
+static int connect_to_host(const char* host, uint16_t port) {
+    char port_str[8];
+    snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
+
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    struct addrinfo* res = NULL;
+    if (lwip_getaddrinfo(host, port_str, &hints, &res) != 0 || !res) {
+#if PLEXUS_DEBUG
+        plexus_hal_log("DNS lookup failed for %s", host);
+#endif
+        return -1;
     }
 
-    buf[total_read] = '\0';
+    int sock = lwip_socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sock < 0) {
+        lwip_freeaddrinfo(res);
+#if PLEXUS_DEBUG
+        plexus_hal_log("Socket creation failed");
+#endif
+        return -1;
+    }
 
+    struct timeval tv;
+    tv.tv_sec = PLEXUS_HTTP_TIMEOUT_MS / 1000;
+    tv.tv_usec = (PLEXUS_HTTP_TIMEOUT_MS % 1000) * 1000;
+    lwip_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    lwip_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    int err = lwip_connect(sock, res->ai_addr, res->ai_addrlen);
+    lwip_freeaddrinfo(res);
+
+    if (err < 0) {
+#if PLEXUS_DEBUG
+        plexus_hal_log("Connection to %s:%u failed", host, (unsigned)port);
+#endif
+        lwip_close(sock);
+        return -1;
+    }
+
+    return sock;
+}
+
+static int read_http_status(int sock) {
+    /* Read the first chunk — status line is always in the first recv.
+     * Using a single recv() instead of byte-by-byte avoids per-byte
+     * syscall overhead on LwIP. */
+    char buf[256];
+    int n = lwip_recv(sock, buf, sizeof(buf) - 1, 0);
+    if (n <= 0) {
+        return -1;
+    }
+    buf[n] = '\0';
+
+    /* Parse "HTTP/1.x NNN ..." */
     int status_code = -1;
-    if (total_read > 12) {
-        const char* status_start = strchr(buf, ' ');
-        if (status_start) {
-            status_code = atoi(status_start + 1);
-        }
+    const char* status_start = strchr(buf, ' ');
+    if (status_start) {
+        status_code = atoi(status_start + 1);
     }
 
-    /* Drain remaining response */
+    /* Drain remaining response with a short timeout.
+     * Connection: close means the server will close after the response,
+     * so we just need to wait for the FIN. */
     char drain_buf[256];
     struct timeval tv;
     tv.tv_sec = 0;
-    tv.tv_usec = 100000;
+    tv.tv_usec = 10000; /* 10ms — just catch data already in the buffer */
     lwip_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     while (lwip_recv(sock, drain_buf, sizeof(drain_buf), 0) > 0) {
-        /* Keep reading until timeout or connection closed */
+        /* Drain until timeout or connection closed */
     }
 
     return status_code;
@@ -194,50 +286,22 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
     }
 
     if (parsed.is_https) {
-        plexus_hal_log("HTTPS not supported without mbedTLS — see TLS NOTE in plexus_hal_stm32.c");
+        /* Log unconditionally — this is a critical misconfiguration */
+        plexus_hal_log("ERROR: HTTPS not supported on STM32 without mbedTLS. "
+                       "Set endpoint to http:// or integrate mbedTLS. "
+                       "See TLS NOTE in plexus_hal_stm32.c");
         return PLEXUS_ERR_HAL;
     }
 
-    int sock = -1;
+    int sock = connect_to_host(parsed.host, parsed.port);
+    if (sock < 0) {
+        return PLEXUS_ERR_NETWORK;
+    }
+
     plexus_err_t result = PLEXUS_ERR_NETWORK;
 
-    struct hostent* host = lwip_gethostbyname(parsed.host);
-    if (!host) {
-#if PLEXUS_DEBUG
-        plexus_hal_log("DNS lookup failed for %s", parsed.host);
-#endif
-        return PLEXUS_ERR_NETWORK;
-    }
-
-    sock = lwip_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock < 0) {
-#if PLEXUS_DEBUG
-        plexus_hal_log("Socket creation failed");
-#endif
-        return PLEXUS_ERR_NETWORK;
-    }
-
-    struct timeval tv;
-    tv.tv_sec = PLEXUS_HTTP_TIMEOUT_MS / 1000;
-    tv.tv_usec = (PLEXUS_HTTP_TIMEOUT_MS % 1000) * 1000;
-    lwip_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    lwip_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-    struct sockaddr_in server_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = lwip_htons(parsed.port);
-    memcpy(&server_addr.sin_addr, host->h_addr, host->h_length);
-
-    if (lwip_connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-#if PLEXUS_DEBUG
-        plexus_hal_log("Connection to %s:%d failed", parsed.host, parsed.port);
-#endif
-        goto cleanup;
-    }
-
     /* Build HTTP request */
-    char header_buf[512];
+    char header_buf[PLEXUS_STM32_HEADER_BUF_SIZE];
     int header_len = snprintf(header_buf, sizeof(header_buf),
         "POST %s HTTP/1.1\r\n"
         "Host: %s\r\n"
@@ -261,14 +325,14 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
         goto cleanup;
     }
 
-    if (lwip_send(sock, header_buf, header_len, 0) != header_len) {
+    if (send_all(sock, header_buf, (size_t)header_len) != 0) {
 #if PLEXUS_DEBUG
         plexus_hal_log("Failed to send HTTP header");
 #endif
         goto cleanup;
     }
 
-    if (lwip_send(sock, body, body_len, 0) != (int)body_len) {
+    if (send_all(sock, body, body_len) != 0) {
 #if PLEXUS_DEBUG
         plexus_hal_log("Failed to send HTTP body");
 #endif
@@ -284,9 +348,7 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
     }
 
 cleanup:
-    if (sock >= 0) {
-        lwip_close(sock);
-    }
+    lwip_close(sock);
     return result;
 }
 
@@ -308,37 +370,21 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
     }
 
     if (parsed.is_https) {
-        plexus_hal_log("HTTPS not supported without mbedTLS — see TLS NOTE in plexus_hal_stm32.c");
+        plexus_hal_log("ERROR: HTTPS not supported on STM32 without mbedTLS. "
+                       "Set endpoint to http:// or integrate mbedTLS. "
+                       "See TLS NOTE in plexus_hal_stm32.c");
         return PLEXUS_ERR_HAL;
     }
 
-    int sock = -1;
-    plexus_err_t result = PLEXUS_ERR_NETWORK;
-
-    struct hostent* host = lwip_gethostbyname(parsed.host);
-    if (!host) return PLEXUS_ERR_NETWORK;
-
-    sock = lwip_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock < 0) return PLEXUS_ERR_NETWORK;
-
-    struct timeval tv;
-    tv.tv_sec = PLEXUS_HTTP_TIMEOUT_MS / 1000;
-    tv.tv_usec = (PLEXUS_HTTP_TIMEOUT_MS % 1000) * 1000;
-    lwip_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    lwip_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-    struct sockaddr_in server_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = lwip_htons(parsed.port);
-    memcpy(&server_addr.sin_addr, host->h_addr, host->h_length);
-
-    if (lwip_connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        goto cleanup;
+    int sock = connect_to_host(parsed.host, parsed.port);
+    if (sock < 0) {
+        return PLEXUS_ERR_NETWORK;
     }
 
+    plexus_err_t result = PLEXUS_ERR_NETWORK;
+
     /* Build GET request */
-    char header_buf[512];
+    char header_buf[PLEXUS_STM32_HEADER_BUF_SIZE];
     int header_len = snprintf(header_buf, sizeof(header_buf),
         "GET %s HTTP/1.1\r\n"
         "Host: %s\r\n"
@@ -356,7 +402,7 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
         goto cleanup;
     }
 
-    if (lwip_send(sock, header_buf, header_len, 0) != header_len) {
+    if (send_all(sock, header_buf, (size_t)header_len) != 0) {
         goto cleanup;
     }
 
@@ -399,9 +445,7 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
     }
 
 cleanup:
-    if (sock >= 0) {
-        lwip_close(sock);
-    }
+    lwip_close(sock);
     return result;
 }
 
@@ -464,7 +508,13 @@ uint32_t plexus_hal_get_tick_ms(void) {
 }
 
 void plexus_hal_delay_ms(uint32_t ms) {
+#if PLEXUS_HAS_FREERTOS
+    /* Yield CPU to other tasks during retry backoff */
+    osDelay(ms);
+#else
+    /* Bare-metal: busy-wait via SysTick */
     HAL_Delay(ms);
+#endif
 }
 
 void plexus_hal_log(const char* fmt, ...) {

@@ -18,20 +18,25 @@ extern void mock_hal_set_next_post_result(plexus_err_t err);
 extern const char* mock_hal_last_post_body(void);
 extern int mock_hal_post_call_count(void);
 extern void mock_hal_advance_tick(uint32_t delta_ms);
+extern void mock_hal_set_tick(uint32_t tick_ms);
 extern const char* mock_hal_last_user_agent(void);
 extern int mock_hal_delay_call_count(void);
 extern uint32_t mock_hal_delay_call_ms(int index);
 
 static int tests_passed = 0;
 static int tests_failed = 0;
+static int s_test_failed_flag = 0;
 
 #define TEST(name) static void test_##name(void)
 #define RUN(name) do { \
     printf("  %-50s", #name); \
     mock_hal_reset(); \
+    s_test_failed_flag = 0; \
     test_##name(); \
-    tests_passed++; \
-    printf("PASS\n"); \
+    if (!s_test_failed_flag) { \
+        tests_passed++; \
+        printf("PASS\n"); \
+    } \
 } while(0)
 
 #define ASSERT(cond) do { \
@@ -39,6 +44,7 @@ static int tests_failed = 0;
         printf("FAIL\n    assertion failed: %s\n    at %s:%d\n", \
                #cond, __FILE__, __LINE__); \
         tests_failed++; \
+        s_test_failed_flag = 1; \
         return; \
     } \
 } while(0)
@@ -450,6 +456,114 @@ TEST(total_sent_and_errors) {
     plexus_free(c);
 }
 
+/* ---- Tick wraparound regression tests ---- */
+
+TEST(tick_wraparound_flushes_correctly) {
+    /* Regression: uint32_t tick wraparound at ~49 days must not break auto-flush.
+     * Simulate a tick counter near UINT32_MAX that wraps around to 0.
+     * Set tick BEFORE init so last_flush_ms captures the pre-wrap value. */
+    mock_hal_set_tick(UINT32_MAX - 500);
+
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_set_flush_interval(c, 1000);
+
+    plexus_send(c, "temp", 25.0);
+
+    /* Tick before interval — should not flush (400ms < 1000ms) */
+    mock_hal_advance_tick(400);
+    plexus_err_t err = plexus_tick(c);
+    ASSERT(err == PLEXUS_OK);
+    ASSERT(plexus_pending_count(c) == 1);
+    ASSERT(mock_hal_post_call_count() == 0);
+
+    /* Advance past wraparound — 700ms more = 1100ms total, past the 1000ms interval.
+     * Tick wraps: UINT32_MAX - 100 + 700 → ~599 */
+    mock_hal_advance_tick(700);
+    err = plexus_tick(c);
+    ASSERT(err == PLEXUS_OK);
+    ASSERT(plexus_pending_count(c) == 0);
+    ASSERT(mock_hal_post_call_count() == 1);
+
+    plexus_free(c);
+}
+
+TEST(rate_limit_cooldown_survives_wraparound) {
+    /* Regression: rate limit cooldown deadline must work across tick wraparound. */
+    mock_hal_set_tick(UINT32_MAX - 1000);
+
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    mock_hal_set_next_post_result(PLEXUS_ERR_RATE_LIMIT);
+    plexus_send(c, "temp", 1.0);
+
+    plexus_err_t err = plexus_flush(c);
+    ASSERT(err == PLEXUS_ERR_RATE_LIMIT);
+
+    /* Still in cooldown after wraparound (2s into 30s cooldown) */
+    mock_hal_set_next_post_result(PLEXUS_OK);
+    mock_hal_advance_tick(2000);
+    err = plexus_flush(c);
+    ASSERT(err == PLEXUS_ERR_RATE_LIMIT);
+
+    /* Advance past the full cooldown */
+    mock_hal_advance_tick(PLEXUS_RATE_LIMIT_COOLDOWN_MS);
+    err = plexus_flush(c);
+    ASSERT(err == PLEXUS_OK);
+
+    plexus_free(c);
+}
+
+/* ---- Auto-flush count test ---- */
+
+TEST(flush_count_triggers_auto_flush) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_set_flush_count(c, 3);
+
+    /* First two should queue without flushing */
+    plexus_send(c, "a", 1.0);
+    ASSERT(plexus_pending_count(c) == 1);
+    ASSERT(mock_hal_post_call_count() == 0);
+
+    plexus_send(c, "b", 2.0);
+    ASSERT(plexus_pending_count(c) == 2);
+    ASSERT(mock_hal_post_call_count() == 0);
+
+    /* Third should trigger auto-flush */
+    plexus_err_t err = plexus_send(c, "c", 3.0);
+    ASSERT(err == PLEXUS_OK);
+    ASSERT(plexus_pending_count(c) == 0); /* flushed */
+    ASSERT(mock_hal_post_call_count() == 1);
+    ASSERT(plexus_total_sent(c) == 3);
+
+    plexus_free(c);
+}
+
+/* ---- send_number_ts test ---- */
+
+TEST(send_number_ts_uses_explicit_timestamp) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number_ts(c, "temp", 25.0, 1700000000000ULL);
+    ASSERT(plexus_pending_count(c) == 1);
+
+    /* Flush and verify the timestamp appears in the JSON */
+    plexus_flush(c);
+    const char* body = mock_hal_last_post_body();
+    ASSERT(strstr(body, "1700000000000") != NULL);
+
+    plexus_free(c);
+}
+
+/* ---- Alignment test ---- */
+
+TEST(init_static_misaligned_returns_null) {
+    /* Misaligned buffer should be rejected */
+    static char raw_buf[sizeof(plexus_client_t) + 16];
+    /* Offset by 1 byte to guarantee misalignment */
+    void* misaligned = (void*)(raw_buf + 1);
+    plexus_client_t* c = plexus_init_static(misaligned,
+        sizeof(plexus_client_t), "plx_key", "dev-001");
+    ASSERT(c == NULL);
+}
+
 #if PLEXUS_ENABLE_STRING_VALUES
 TEST(send_string) {
     plexus_client_t* c = plexus_init("plx_key", "dev-001");
@@ -469,6 +583,33 @@ TEST(send_bool) {
     plexus_free(c);
 }
 #endif
+
+/* ---- Metric name validation tests ---- */
+
+TEST(send_rejects_control_chars_in_metric_name) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+
+    /* Newline in metric name */
+    ASSERT(plexus_send_number(c, "bad\nname", 1.0) == PLEXUS_ERR_INVALID_ARG);
+
+    /* Tab in metric name */
+    ASSERT(plexus_send_number(c, "bad\tname", 1.0) == PLEXUS_ERR_INVALID_ARG);
+
+    /* Null byte (empty after null) */
+    ASSERT(plexus_send_number(c, "", 1.0) == PLEXUS_ERR_INVALID_ARG);
+
+    /* Non-ASCII byte */
+    ASSERT(plexus_send_number(c, "temp\xC0\xB0", 1.0) == PLEXUS_ERR_INVALID_ARG);
+
+    /* Valid names with special printable chars should work */
+    ASSERT(plexus_send_number(c, "cpu.usage", 50.0) == PLEXUS_OK);
+    ASSERT(plexus_send_number(c, "mem/total", 1024.0) == PLEXUS_OK);
+    ASSERT(plexus_send_number(c, "disk_io [bytes]", 42.0) == PLEXUS_OK);
+
+    ASSERT(plexus_pending_count(c) == 3);
+
+    plexus_free(c);
+}
 
 /* ---- Main ---- */
 
@@ -509,6 +650,12 @@ int main(void) {
     /* Tick */
     RUN(tick_returns_ok_when_idle);
     RUN(tick_flushes_on_interval);
+    RUN(tick_wraparound_flushes_correctly);
+    RUN(rate_limit_cooldown_survives_wraparound);
+    RUN(flush_count_triggers_auto_flush);
+    RUN(send_number_ts_uses_explicit_timestamp);
+    RUN(init_static_misaligned_returns_null);
+    RUN(send_rejects_control_chars_in_metric_name);
 
     /* Config */
     RUN(set_endpoint);

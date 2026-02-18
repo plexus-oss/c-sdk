@@ -232,7 +232,9 @@ Unsent telemetry survives reboots when enabled:
 -DPLEXUS_ENABLE_PERSISTENT_BUFFER=1
 ```
 
-On flush failure, the serialized batch is written to flash. On next `plexus_flush()`, persisted data is sent first. ESP32 uses NVS; STM32/Arduino require implementing 3 HAL storage functions.
+On flush failure, the serialized batch is written to flash with CRC32 integrity check. On next `plexus_flush()`, persisted data is sent first. ESP32 uses NVS; STM32/Arduino require implementing 3 HAL storage functions.
+
+**Note:** Only the most recent failed batch is persisted. If multiple flushes fail before recovery, earlier batches are overwritten. For extended offline buffering, increase `PLEXUS_MAX_METRICS` to batch more data per flush.
 
 ## Thread Safety
 

@@ -115,8 +115,9 @@ static int read_alarm_state(void) {
 /* Telemetry task                                                            */
 /* ========================================================================= */
 
-/* Static allocation — no malloc needed */
-static uint8_t plexus_buf[PLEXUS_CLIENT_STATIC_SIZE];
+/* Static allocation — no malloc needed.
+ * PLEXUS_CLIENT_STATIC_BUF ensures correct size and alignment. */
+PLEXUS_CLIENT_STATIC_BUF(plexus_buf);
 
 static void telemetry_task(void const* argument) {
     (void)argument;
@@ -130,7 +131,7 @@ static void telemetry_task(void const* argument) {
 
     /* Initialize Plexus client using static allocation (no malloc) */
     plexus_client_t* client = plexus_init_static(
-        plexus_buf, sizeof(plexus_buf), PLEXUS_API_KEY, PLEXUS_SOURCE_ID);
+        &plexus_buf, sizeof(plexus_buf), PLEXUS_API_KEY, PLEXUS_SOURCE_ID);
     if (!client) {
         printf("ERROR: Failed to initialize Plexus client\r\n");
         osThreadTerminate(NULL);

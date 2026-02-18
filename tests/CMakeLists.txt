@@ -48,7 +48,7 @@ add_executable(test_core
 )
 target_include_directories(test_core PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
 target_compile_features(test_core PRIVATE c_std_99)
-target_compile_options(test_core PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter ${SANITIZER_FLAGS} ${MINIMAL_FLAGS})
+target_compile_options(test_core PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} ${MINIMAL_FLAGS})
 target_link_options(test_core PRIVATE ${SANITIZER_FLAGS})
 target_link_libraries(test_core PRIVATE m)
 
@@ -62,7 +62,7 @@ add_executable(test_json
 )
 target_include_directories(test_json PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
 target_compile_features(test_json PRIVATE c_std_99)
-target_compile_options(test_json PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter ${SANITIZER_FLAGS} ${MINIMAL_FLAGS})
+target_compile_options(test_json PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} ${MINIMAL_FLAGS})
 target_link_options(test_json PRIVATE ${SANITIZER_FLAGS})
 target_link_libraries(test_json PRIVATE m)
 

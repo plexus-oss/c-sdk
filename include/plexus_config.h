@@ -88,6 +88,15 @@
 #define PLEXUS_AUTO_FLUSH_INTERVAL_MS 5000 /* Auto-flush interval (0=disabled) */
 #endif
 
+/* Tag settings */
+#ifndef PLEXUS_MAX_TAG_LEN
+#define PLEXUS_MAX_TAG_LEN 32          /* Max tag key/value length */
+#endif
+
+#ifndef PLEXUS_MAX_TAGS
+#define PLEXUS_MAX_TAGS 4              /* Max tags per metric */
+#endif
+
 /* Memory optimization flags */
 #ifndef PLEXUS_ENABLE_TAGS
 #define PLEXUS_ENABLE_TAGS 1           /* Enable metric tags support */

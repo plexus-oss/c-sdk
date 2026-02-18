@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-02-18
+
+### Fixed
+
+- **Security: command ID URL injection** — command IDs from server responses are now validated with `plexus_internal_is_url_safe()` before embedding in result URLs, preventing path traversal attacks (e.g., `../../admin`)
+- **STM32 HTTP header buffer overflow** — increased header buffer from 512 to 768 bytes (`PLEXUS_STM32_HEADER_BUF_SIZE`) to fit worst-case config values (256-byte path + 128-byte host + 128-byte API key)
+- **Command JSON parser unescaping** — `json_extract_string()` now unescapes `\"`, `\\`, `\n`, `\r`, `\t`, `\/` sequences instead of copying raw escaped content to command handlers
+
+### Added
+
+- Compile-time configuration validation via `_Static_assert` (C11) with C99/GCC fallback — catches invalid `PLEXUS_MAX_METRICS`, `PLEXUS_JSON_BUFFER_SIZE`, `PLEXUS_MAX_RETRIES`, and other misconfigured values at build time
+- `plexus_internal_is_url_safe()` shared validator in `plexus_internal.h` — used by both source ID and command ID validation
+- Documentation: persistent buffer single-batch limitation noted in README
+
+### Changed
+
+- `is_valid_source_id()` renamed to `plexus_internal_is_url_safe()` and made non-static for cross-module reuse
+- Test suite: 62 tests (43 core + 19 JSON)
+
 ## [0.2.0] - 2026-02-18
 
 ### Added
@@ -19,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CTest integration — `ctest --test-dir build-test` runs all tests
 - `PLEXUS_MINIMAL_CONFIG` CMake option — builds with all optional features disabled
 - CI job for minimal-config build validation
+- `plexus_init_static()` runtime alignment check — rejects misaligned buffers (prevents Cortex-M0 hard faults)
+- Tick wraparound regression tests for auto-flush and rate limit cooldown
+- Auto-flush count trigger test
+- Explicit timestamp (`plexus_send_number_ts`) round-trip test
+- Misaligned buffer rejection test
 
 ### Fixed
 
@@ -31,13 +55,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Duplicate PLEXUS_USER_AGENT** — single definition in `plexus_internal.h`, removed from plexus_commands.c
 - **STM32 HAL hardcoded peripherals** — `huart2` and `hrtc` now configurable via `PLEXUS_STM32_DEBUG_UART` and `PLEXUS_STM32_RTC` defines
 - **STM32 HTTP GET 2KB stack allocation** — reads directly into caller's buffer with `memmove()` for body extraction
+- **STM32 `HAL_Delay` blocks FreeRTOS tasks** — now uses `osDelay()` when FreeRTOS is detected, falling back to `HAL_Delay()` on bare-metal
+- **STM32 `parse_url` port overflow** — validates port range 1–65535 instead of blind `atoi` cast to `uint16_t`
+- **STM32 `read_http_status` performance** — reads first chunk instead of byte-by-byte, reduced drain timeout from 100ms to 10ms
+- **CI paths filter** — fixed for standalone repo (was referencing monorepo paths)
+- **`plexus_send_number_tagged` duplicated queuing logic** — refactored to share validation and auto-flush via `maybe_auto_flush()`
 
 ### Changed
 
 - Client struct fields exposed in public header (members prefixed with `_` — not part of public API)
 - Arduino `PlexusClient` is now non-copyable (deleted copy constructor and assignment operator)
-- Test suite expanded from 54 to 56 tests (37 core + 19 JSON)
-- Examples updated to use `plexus_send()` macro
+- Test suite expanded from 54 to 61 tests (42 core + 19 JSON)
+- Examples updated to use `plexus_send()` macro and `PLEXUS_CLIENT_STATIC_BUF()`
 - README rewritten for "3 clicks" developer experience matching Python SDK flow
 
 ## [0.1.1] - 2026-02-18
@@ -103,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow: host tests + PlatformIO cross-compilation for ESP32, ESP8266, STM32
 - Examples: ESP32 ESP-IDF, Arduino basic, STM32 FreeRTOS
 
+[0.2.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.2.1
 [0.2.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.2.0
 [0.1.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.1.1
 [0.1.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.1.0

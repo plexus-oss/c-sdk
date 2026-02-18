@@ -6,6 +6,70 @@
 #include "plexus_internal.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
+
+/* ------------------------------------------------------------------------- */
+/* Compile-time configuration validation                                     */
+/* ------------------------------------------------------------------------- */
+
+/* _Static_assert is C11; use a fallback for C99 compilers without it */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+    #define PLEXUS_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#elif defined(__GNUC__) || defined(__clang__)
+    #define PLEXUS_STATIC_ASSERT(cond, msg) \
+        typedef char plexus_assert_##__LINE__[(cond) ? 1 : -1] __attribute__((unused))
+#else
+    #define PLEXUS_STATIC_ASSERT(cond, msg) /* no-op on old compilers */
+#endif
+
+PLEXUS_STATIC_ASSERT(PLEXUS_MAX_METRICS > 0,
+    "PLEXUS_MAX_METRICS must be at least 1");
+PLEXUS_STATIC_ASSERT(PLEXUS_JSON_BUFFER_SIZE >= 256,
+    "PLEXUS_JSON_BUFFER_SIZE must be at least 256 bytes");
+PLEXUS_STATIC_ASSERT(PLEXUS_MAX_METRIC_NAME_LEN >= 8,
+    "PLEXUS_MAX_METRIC_NAME_LEN must be at least 8");
+PLEXUS_STATIC_ASSERT(PLEXUS_MAX_API_KEY_LEN >= 16,
+    "PLEXUS_MAX_API_KEY_LEN must be at least 16");
+PLEXUS_STATIC_ASSERT(PLEXUS_MAX_SOURCE_ID_LEN >= 4,
+    "PLEXUS_MAX_SOURCE_ID_LEN must be at least 4");
+PLEXUS_STATIC_ASSERT(PLEXUS_MAX_RETRIES >= 1 && PLEXUS_MAX_RETRIES <= 10,
+    "PLEXUS_MAX_RETRIES must be between 1 and 10");
+PLEXUS_STATIC_ASSERT(PLEXUS_MAX_ENDPOINT_LEN >= 32,
+    "PLEXUS_MAX_ENDPOINT_LEN must be at least 32");
+
+/* ------------------------------------------------------------------------- */
+/* CRC32 for persistent buffer integrity (IEEE 802.3 polynomial)             */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_PERSISTENT_BUFFER
+
+/* Header prepended to persistent buffer data */
+typedef struct {
+    uint32_t crc32;
+    uint32_t data_len;
+} plexus_persist_header_t;
+
+/**
+ * Bitwise CRC32 — no lookup table, saves ~1KB of flash.
+ * Uses IEEE 802.3 polynomial (0xEDB88320 reflected).
+ */
+static uint32_t plexus_crc32(const void* data, size_t len) {
+    const uint8_t* p = (const uint8_t*)data;
+    uint32_t crc = 0xFFFFFFFFU;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= p[i];
+        for (int bit = 0; bit < 8; bit++) {
+            if (crc & 1) {
+                crc = (crc >> 1) ^ 0xEDB88320U;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    return ~crc;
+}
+
+#endif /* PLEXUS_ENABLE_PERSISTENT_BUFFER */
 
 /* ------------------------------------------------------------------------- */
 /* Error messages                                                            */
@@ -42,11 +106,7 @@ const char* plexus_version(void) {
 /* Source ID validation                                                      */
 /* ------------------------------------------------------------------------- */
 
-/**
- * Validate that source_id contains only URL-safe characters: [a-zA-Z0-9._-]
- * This prevents URL injection in command poll URLs and ensures clean payloads.
- */
-static bool is_valid_source_id(const char* s) {
+bool plexus_internal_is_url_safe(const char* s) {
     if (!s || s[0] == '\0') {
         return false;
     }
@@ -57,6 +117,24 @@ static bool is_valid_source_id(const char* s) {
             continue;
         }
         return false;
+    }
+    return true;
+}
+
+/**
+ * Validate that a metric name contains only printable ASCII characters (0x20-0x7E).
+ * Rejects control characters, newlines, tabs, and non-ASCII bytes that could
+ * produce invalid JSON or break server-side processing.
+ */
+static bool is_valid_metric_name(const char* s) {
+    if (!s || s[0] == '\0') {
+        return false;
+    }
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (c < 0x20 || c > 0x7E) {
+            return false;
+        }
     }
     return true;
 }
@@ -108,7 +186,7 @@ plexus_client_t* plexus_init(const char* api_key, const char* source_id) {
     if (!api_key || !source_id) {
         return NULL;
     }
-    if (!is_valid_source_id(source_id)) {
+    if (!plexus_internal_is_url_safe(source_id)) {
         return NULL;
     }
     if (strlen(api_key) >= PLEXUS_MAX_API_KEY_LEN ||
@@ -132,7 +210,13 @@ plexus_client_t* plexus_init_static(void* buf, size_t buf_size,
     if (buf_size < sizeof(plexus_client_t)) {
         return NULL;
     }
-    if (!is_valid_source_id(source_id)) {
+    /* Reject misaligned buffers — prevents hard faults on strict-alignment
+     * targets (e.g., Cortex-M0). Use PLEXUS_CLIENT_STATIC_BUF() to guarantee
+     * correct alignment. */
+    if (((uintptr_t)buf % sizeof(void*)) != 0) {
+        return NULL;
+    }
+    if (!plexus_internal_is_url_safe(source_id)) {
         return NULL;
     }
     if (strlen(api_key) >= PLEXUS_MAX_API_KEY_LEN ||
@@ -165,6 +249,7 @@ plexus_err_t plexus_set_endpoint(plexus_client_t* client, const char* endpoint) 
     }
 
     strncpy(client->endpoint, endpoint, sizeof(client->endpoint) - 1);
+    client->endpoint[sizeof(client->endpoint) - 1] = '\0';
     return PLEXUS_OK;
 }
 
@@ -195,8 +280,24 @@ plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count) {
 /* ------------------------------------------------------------------------- */
 
 /**
- * Queue a metric. Auto-flush only triggers a non-blocking flush (no retries)
- * so that send functions never block for seconds.
+ * Check if count-based auto-flush should trigger and flush if so.
+ *
+ * WARNING: plexus_flush() retries with exponential backoff and may block
+ * for up to ~14 seconds. This is intentional — count-based auto-flush
+ * prevents buffer overflows, and the caller should be aware that send
+ * functions may block when the buffer fills to the flush threshold.
+ */
+static plexus_err_t maybe_auto_flush(plexus_client_t* client) {
+    uint16_t flush_count = client->auto_flush_count > 0
+        ? client->auto_flush_count : PLEXUS_AUTO_FLUSH_COUNT;
+    if (flush_count > 0 && client->metric_count >= flush_count) {
+        return plexus_flush(client);
+    }
+    return PLEXUS_OK;
+}
+
+/**
+ * Queue a metric into the client's buffer.
  */
 static plexus_err_t add_metric(plexus_client_t* client, const char* metric,
                                 plexus_value_t* value, uint64_t timestamp_ms) {
@@ -208,6 +309,9 @@ static plexus_err_t add_metric(plexus_client_t* client, const char* metric,
     }
     if (strlen(metric) >= PLEXUS_MAX_METRIC_NAME_LEN) {
         return PLEXUS_ERR_STRING_TOO_LONG;
+    }
+    if (!is_valid_metric_name(metric)) {
+        return PLEXUS_ERR_INVALID_ARG;
     }
     if (client->metric_count >= PLEXUS_MAX_METRICS) {
         return PLEXUS_ERR_BUFFER_FULL;
@@ -231,16 +335,7 @@ static plexus_err_t add_metric(plexus_client_t* client, const char* metric,
     plexus_hal_log("Queued metric: %s (total: %d)", metric, client->metric_count);
 #endif
 
-    /* Count-based auto-flush: single attempt, no retries */
-    {
-        uint16_t flush_count = client->auto_flush_count > 0
-            ? client->auto_flush_count : PLEXUS_AUTO_FLUSH_COUNT;
-        if (flush_count > 0 && client->metric_count >= flush_count) {
-            return plexus_flush(client);
-        }
-    }
-
-    return PLEXUS_OK;
+    return maybe_auto_flush(client);
 }
 
 plexus_err_t plexus_send_number(plexus_client_t* client, const char* metric, double value) {
@@ -291,57 +386,43 @@ plexus_err_t plexus_send_bool(plexus_client_t* client, const char* metric, bool 
 plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metric,
                                         double value, const char** tag_keys,
                                         const char** tag_values, uint8_t tag_count) {
-    if (!client || !metric) {
+    if (tag_count > PLEXUS_MAX_TAGS) {
+        tag_count = PLEXUS_MAX_TAGS;
+    }
+
+    /* Validate and queue metric first. We need to suppress auto-flush
+     * until tags are attached, so temporarily disable it. */
+    if (!client) {
         return PLEXUS_ERR_NULL_PTR;
     }
-    if (!client->initialized) {
-        return PLEXUS_ERR_NOT_INITIALIZED;
-    }
-    if (strlen(metric) >= PLEXUS_MAX_METRIC_NAME_LEN) {
-        return PLEXUS_ERR_STRING_TOO_LONG;
-    }
-    if (client->metric_count >= PLEXUS_MAX_METRICS) {
-        return PLEXUS_ERR_BUFFER_FULL;
-    }
-    if (tag_count > 4) {
-        tag_count = 4;
+    uint16_t saved_flush_count = client->auto_flush_count;
+    client->auto_flush_count = 0; /* Suppress auto-flush temporarily */
+
+    plexus_value_t v;
+    memset(&v, 0, sizeof(v));
+    v.type = PLEXUS_VALUE_NUMBER;
+    v.data.number = value;
+
+    plexus_err_t err = add_metric(client, metric, &v, 0);
+    client->auto_flush_count = saved_flush_count; /* Restore */
+
+    if (err != PLEXUS_OK) {
+        return err;
     }
 
-    plexus_metric_t* m = &client->metrics[client->metric_count];
-    memset(m, 0, sizeof(plexus_metric_t));
-
-    strncpy(m->name, metric, PLEXUS_MAX_METRIC_NAME_LEN - 1);
-    m->value.type = PLEXUS_VALUE_NUMBER;
-    m->value.data.number = value;
-    m->timestamp_ms = plexus_hal_get_time_ms();
-
+    /* Attach tags to the just-queued metric */
+    plexus_metric_t* m = &client->metrics[client->metric_count - 1];
     m->tag_count = tag_count;
     for (uint8_t i = 0; i < tag_count && tag_keys && tag_values; i++) {
         if (tag_keys[i] && tag_values[i]) {
-            strncpy(m->tag_keys[i], tag_keys[i], 31);
-            m->tag_keys[i][31] = '\0';
-            strncpy(m->tag_values[i], tag_values[i], 31);
-            m->tag_values[i][31] = '\0';
+            strncpy(m->tag_keys[i], tag_keys[i], PLEXUS_MAX_TAG_LEN - 1);
+            m->tag_keys[i][PLEXUS_MAX_TAG_LEN - 1] = '\0';
+            strncpy(m->tag_values[i], tag_values[i], PLEXUS_MAX_TAG_LEN - 1);
+            m->tag_values[i][PLEXUS_MAX_TAG_LEN - 1] = '\0';
         }
     }
 
-    client->metric_count++;
-
-#if PLEXUS_DEBUG
-    plexus_hal_log("Queued metric: %s (total: %d, tags: %d)",
-                   metric, client->metric_count, tag_count);
-#endif
-
-    /* Count-based auto-flush */
-    {
-        uint16_t flush_count = client->auto_flush_count > 0
-            ? client->auto_flush_count : PLEXUS_AUTO_FLUSH_COUNT;
-        if (flush_count > 0 && client->metric_count >= flush_count) {
-            return plexus_flush(client);
-        }
-    }
-
-    return PLEXUS_OK;
+    return maybe_auto_flush(client);
 }
 #endif
 
@@ -423,14 +504,38 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
         size_t stored_len = 0;
         plexus_err_t restore_err = plexus_hal_storage_read(
             "plexus_buf", client->json_buffer, PLEXUS_JSON_BUFFER_SIZE, &stored_len);
-        if (restore_err == PLEXUS_OK && stored_len > 0) {
+        if (restore_err == PLEXUS_OK && stored_len > sizeof(plexus_persist_header_t)) {
+            /* Validate CRC32 header */
+            plexus_persist_header_t header;
+            memcpy(&header, client->json_buffer, sizeof(header));
+            size_t payload_len = stored_len - sizeof(header);
+
+            if (header.data_len <= payload_len) {
+                const char* payload = client->json_buffer + sizeof(header);
+                uint32_t actual_crc = plexus_crc32(payload, header.data_len);
+
+                if (actual_crc == header.crc32) {
 #if PLEXUS_DEBUG
-            plexus_hal_log("Restoring %zu bytes from persistent buffer", stored_len);
+                    plexus_hal_log("Restoring %u bytes from persistent buffer",
+                                   (unsigned)header.data_len);
 #endif
-            plexus_err_t send_err = plexus_hal_http_post(
-                client->endpoint, client->api_key, PLEXUS_USER_AGENT,
-                client->json_buffer, stored_len);
-            if (send_err == PLEXUS_OK) {
+                    /* Shift payload to front of buffer for sending */
+                    memmove(client->json_buffer, payload, header.data_len);
+
+                    plexus_err_t send_err = plexus_hal_http_post(
+                        client->endpoint, client->api_key, PLEXUS_USER_AGENT,
+                        client->json_buffer, header.data_len);
+                    if (send_err == PLEXUS_OK) {
+                        plexus_hal_storage_clear("plexus_buf");
+                    }
+                } else {
+#if PLEXUS_DEBUG
+                    plexus_hal_log("Persistent buffer CRC mismatch — discarding corrupt data");
+#endif
+                    plexus_hal_storage_clear("plexus_buf");
+                }
+            } else {
+                /* Invalid header — clear corrupt data */
                 plexus_hal_storage_clear("plexus_buf");
             }
         }
@@ -498,10 +603,26 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
     }
 
 #if PLEXUS_ENABLE_PERSISTENT_BUFFER
-    plexus_hal_storage_write("plexus_buf", client->json_buffer, (size_t)json_len);
+    /* Prepend CRC32 header to detect flash corruption on restore */
+    if ((size_t)json_len + sizeof(plexus_persist_header_t) <= PLEXUS_JSON_BUFFER_SIZE) {
+        /* Build header + payload into a temp region.
+         * Shift json_buffer contents to make room for the header. */
+        memmove(client->json_buffer + sizeof(plexus_persist_header_t),
+                client->json_buffer, (size_t)json_len);
+
+        plexus_persist_header_t header;
+        header.data_len = (uint32_t)json_len;
+        header.crc32 = plexus_crc32(client->json_buffer + sizeof(header),
+                                     (size_t)json_len);
+        memcpy(client->json_buffer, &header, sizeof(header));
+
+        plexus_hal_storage_write("plexus_buf", client->json_buffer,
+                                  sizeof(header) + (size_t)json_len);
 #if PLEXUS_DEBUG
-    plexus_hal_log("Persisted %d bytes to flash buffer", json_len);
+        plexus_hal_log("Persisted %d bytes to flash buffer (CRC: 0x%08x)",
+                       json_len, (unsigned)header.crc32);
 #endif
+    }
 #endif
 
     client->total_errors++;

@@ -129,7 +129,7 @@ static void json_append_uint64(json_writer_t* w, uint64_t value) {
  *
  * Output format:
  * {
- *   "sdk": "c/0.2.0",
+ *   "sdk": "c/0.2.1",
  *   "points": [
  *     {
  *       "metric": "temperature",
@@ -253,11 +253,26 @@ static int json_extract_string(const char* json, size_t json_len,
         value_end++;
     }
 
-    size_t value_len = (size_t)(value_end - value_start);
-    if (value_len >= out_size) value_len = out_size - 1;
-
-    memcpy(out, value_start, value_len);
-    out[value_len] = '\0';
+    /* Unescape common JSON sequences while copying */
+    size_t out_pos = 0;
+    const char* src = value_start;
+    while (src < value_end && out_pos < out_size - 1) {
+        if (*src == '\\' && (src + 1) < value_end) {
+            char next = *(src + 1);
+            switch (next) {
+                case '"':  out[out_pos++] = '"';  src += 2; break;
+                case '\\': out[out_pos++] = '\\'; src += 2; break;
+                case 'n':  out[out_pos++] = '\n'; src += 2; break;
+                case 'r':  out[out_pos++] = '\r'; src += 2; break;
+                case 't':  out[out_pos++] = '\t'; src += 2; break;
+                case '/':  out[out_pos++] = '/';  src += 2; break;
+                default:   out[out_pos++] = *src++; break; /* copy backslash as-is */
+            }
+        } else {
+            out[out_pos++] = *src++;
+        }
+    }
+    out[out_pos] = '\0';
     return 0;
 }
 
@@ -281,16 +296,16 @@ static int json_extract_int(const char* json, size_t json_len,
     /* Don't parse strings or objects */
     if (*num_start == '"' || *num_start == '{' || *num_start == '[') return default_val;
 
-    long val = 0;
+    uint32_t val = 0;
     int sign = 1;
     if (*num_start == '-') { sign = -1; num_start++; }
 
     int digits = 0;
     while (*num_start >= '0' && *num_start <= '9' && digits < 10) {
-        long prev = val;
-        val = val * 10 + (*num_start - '0');
-        /* Overflow check: multiplication or addition wrapped */
-        if (val < prev) return default_val;
+        uint32_t digit = (uint32_t)(*num_start - '0');
+        /* Overflow check before multiply/add (works on both 32/64-bit) */
+        if (val > (UINT32_MAX - digit) / 10) return default_val;
+        val = val * 10 + digit;
         num_start++;
         digits++;
     }
@@ -298,11 +313,11 @@ static int json_extract_int(const char* json, size_t json_len,
     if (digits == 0) return default_val;
 
     /* Check range for signed int result */
-    if (sign == 1 && val > 2147483647L) return default_val;
-    if (sign == -1 && val > 2147483648L) return default_val;
+    if (sign == 1 && val > 2147483647U) return default_val;
+    if (sign == -1 && val > 2147483648U) return default_val;
 
     (void)json_len;
-    return (int)(val * sign);
+    return (int)((int32_t)val * sign);
 }
 
 /**

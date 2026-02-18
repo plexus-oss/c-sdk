@@ -93,6 +93,15 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client) {
         return PLEXUS_OK;
     }
 
+    /* Validate command ID before embedding in URL to prevent path injection.
+     * A malicious server could send id="../../admin" to redirect the result POST. */
+    if (!plexus_internal_is_url_safe(cmd.id)) {
+#if PLEXUS_DEBUG
+        plexus_hal_log("Rejected command with unsafe id: %.32s", cmd.id);
+#endif
+        return PLEXUS_ERR_INVALID_ARG;
+    }
+
 #if PLEXUS_DEBUG
     plexus_hal_log("Received command: %s (id=%s, timeout=%ds)",
                    cmd.command, cmd.id, cmd.timeout_seconds);
