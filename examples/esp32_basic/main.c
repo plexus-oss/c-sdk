@@ -205,9 +205,9 @@ void app_main(void) {
                  temp, humidity, pressure);
 
         /* Queue metrics */
-        plexus_send_number(plexus, "temperature", temp);
-        plexus_send_number(plexus, "humidity", humidity);
-        plexus_send_number(plexus, "pressure", pressure);
+        plexus_send(plexus, "temperature", temp);
+        plexus_send(plexus, "humidity", humidity);
+        plexus_send(plexus, "pressure", pressure);
 
 #if PLEXUS_ENABLE_TAGS
         const char* tag_keys[] = {"location", "unit"};

@@ -19,8 +19,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#define PLEXUS_USER_AGENT "plexus-c-sdk/" PLEXUS_VERSION_STR
-
 plexus_err_t plexus_register_command_handler(plexus_client_t* client,
                                               plexus_command_handler_t handler) {
     if (!client) return PLEXUS_ERR_NULL_PTR;

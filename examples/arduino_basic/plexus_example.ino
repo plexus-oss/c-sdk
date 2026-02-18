@@ -85,8 +85,8 @@ void loop() {
         Serial.println("%");
 
         /* Queue metrics */
-        plexus.sendNumber("temperature", temperature);
-        plexus.sendNumber("humidity", humidity);
+        plexus.send("temperature", temperature);
+        plexus.send("humidity", humidity);
     }
 
     /* Call tick() every loop iteration to handle time-based auto-flush.

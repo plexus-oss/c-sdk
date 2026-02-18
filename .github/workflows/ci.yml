@@ -16,7 +16,7 @@ defaults:
 
 jobs:
   host-tests:
-    name: Host Tests
+    name: Host Tests (ASan + UBSan)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,11 +26,22 @@ jobs:
           cmake -B build-test tests/
           cmake --build build-test/
 
-      - name: Run test_core
-        run: ./build-test/test_core
+      - name: Run tests
+        run: ctest --test-dir build-test --output-on-failure
 
-      - name: Run test_json
-        run: ./build-test/test_json
+  host-tests-minimal:
+    name: Host Tests (Minimal Config)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build tests (minimal config ~1.5KB)
+        run: |
+          cmake -B build-test-min tests/ -DPLEXUS_MINIMAL_CONFIG=ON
+          cmake --build build-test-min/
+
+      - name: Run tests (minimal)
+        run: ctest --test-dir build-test-min --output-on-failure
 
   pio-esp32-arduino:
     name: PlatformIO ESP32 (Arduino)

@@ -2,7 +2,7 @@
  * @file plexus_hal_stm32.c
  * @brief STM32 HAL implementation for Plexus C SDK
  *
- * This implementation targets STM32F4/F7/H7 series with LwIP middleware.
+ * Targets STM32F4/F7/H7 series with LwIP middleware.
  * Requires:
  * - STM32 HAL drivers
  * - LwIP with sockets API enabled
@@ -14,8 +14,18 @@
  *   #define LWIP_SO_RCVTIMEO 1
  *   #define LWIP_SO_SNDTIMEO 1
  *
- * Note: This implementation uses HTTP (not HTTPS) for simplicity.
- * For HTTPS, integrate mbedTLS with LwIP's altcp_tls layer.
+ * *** TLS/HTTPS NOTE ***
+ * This HAL uses plain HTTP. For HTTPS (required for production), you must
+ * integrate mbedTLS with LwIP's altcp_tls layer:
+ *   1. Enable mbedTLS in CubeMX (Middleware > mbedTLS)
+ *   2. Configure altcp_tls in lwipopts.h:
+ *        #define LWIP_ALTCP          1
+ *        #define LWIP_ALTCP_TLS      1
+ *        #define LWIP_ALTCP_TLS_MBEDTLS 1
+ *   3. Replace lwip_socket/connect/send/recv with altcp equivalents
+ *   4. Load the server's root CA certificate for verification
+ *
+ * Alternatively, use a TLS-terminating proxy on your network edge.
  */
 
 #include "plexus.h"
@@ -43,9 +53,18 @@
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
 
-/* External handles (defined in main.c or CubeMX generated code) */
-extern UART_HandleTypeDef huart2;  /* Debug UART - adjust as needed */
-extern RTC_HandleTypeDef hrtc;     /* RTC handle - optional */
+/* Configurable peripheral handles.
+ * Override these with -DPLEXUS_STM32_DEBUG_UART=huart3 etc. in your build. */
+#ifndef PLEXUS_STM32_DEBUG_UART
+#define PLEXUS_STM32_DEBUG_UART huart2
+#endif
+
+#ifndef PLEXUS_STM32_RTC
+#define PLEXUS_STM32_RTC hrtc
+#endif
+
+extern UART_HandleTypeDef PLEXUS_STM32_DEBUG_UART;
+extern RTC_HandleTypeDef PLEXUS_STM32_RTC;
 
 /* ------------------------------------------------------------------------- */
 /* Internal helpers                                                          */
@@ -175,8 +194,7 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
     }
 
     if (parsed.is_https) {
-        plexus_hal_log("ERROR: HTTPS not supported on STM32 without mbedTLS. "
-                       "Use an http:// endpoint or integrate mbedTLS with LwIP altcp_tls.");
+        plexus_hal_log("HTTPS not supported without mbedTLS — see TLS NOTE in plexus_hal_stm32.c");
         return PLEXUS_ERR_HAL;
     }
 
@@ -290,8 +308,7 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
     }
 
     if (parsed.is_https) {
-        plexus_hal_log("ERROR: HTTPS not supported on STM32 without mbedTLS. "
-                       "Use an http:// endpoint or integrate mbedTLS with LwIP altcp_tls.");
+        plexus_hal_log("HTTPS not supported without mbedTLS — see TLS NOTE in plexus_hal_stm32.c");
         return PLEXUS_ERR_HAL;
     }
 
@@ -343,35 +360,37 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
         goto cleanup;
     }
 
-    /* Read response: find end of headers, then read body */
+    /* Read response directly into the caller-provided buffer.
+     * This avoids a large stack allocation — the caller's buffer
+     * is typically the client's json_buffer (PLEXUS_JSON_BUFFER_SIZE). */
     {
-        char recv_buf[256];
-        char full_resp[2048];
-        int full_len = 0;
+        char recv_chunk[256];
+        int total_read = 0;
+        int buf_limit = (int)buf_size - 1;
 
-        while (full_len < (int)sizeof(full_resp) - 1) {
-            int n = lwip_recv(sock, recv_buf, sizeof(recv_buf), 0);
+        while (total_read < buf_limit) {
+            int n = lwip_recv(sock, recv_chunk, sizeof(recv_chunk), 0);
             if (n <= 0) break;
-            if (full_len + n >= (int)sizeof(full_resp)) n = (int)sizeof(full_resp) - 1 - full_len;
-            memcpy(full_resp + full_len, recv_buf, n);
-            full_len += n;
+            int to_copy = n;
+            if (total_read + to_copy > buf_limit) to_copy = buf_limit - total_read;
+            memcpy(response_buf + total_read, recv_chunk, to_copy);
+            total_read += to_copy;
         }
-        full_resp[full_len] = '\0';
+        response_buf[total_read] = '\0';
 
-        /* Parse status code */
+        /* Parse status code from first line */
         int status_code = -1;
-        const char* status_start = strchr(full_resp, ' ');
+        const char* status_start = strchr(response_buf, ' ');
         if (status_start) {
             status_code = atoi(status_start + 1);
         }
 
-        /* Find body start */
-        const char* body = strstr(full_resp, "\r\n\r\n");
+        /* Find body start (after \r\n\r\n) and shift it to front of buffer */
+        const char* body = strstr(response_buf, "\r\n\r\n");
         if (body) {
             body += 4;
-            size_t body_len = full_len - (body - full_resp);
-            if (body_len >= buf_size) body_len = buf_size - 1;
-            memcpy(response_buf, body, body_len);
+            size_t body_len = total_read - (body - response_buf);
+            memmove(response_buf, body, body_len);
             response_buf[body_len] = '\0';
             *response_len = body_len;
         }
@@ -393,10 +412,10 @@ uint64_t plexus_hal_get_time_ms(void) {
     RTC_TimeTypeDef time;
     RTC_DateTypeDef date;
 
-    if (HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN) != HAL_OK) {
+    if (HAL_RTC_GetTime(&PLEXUS_STM32_RTC, &time, RTC_FORMAT_BIN) != HAL_OK) {
         return 0;
     }
-    if (HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN) != HAL_OK) {
+    if (HAL_RTC_GetDate(&PLEXUS_STM32_RTC, &date, RTC_FORMAT_BIN) != HAL_OK) {
         return 0;
     }
 
@@ -461,7 +480,7 @@ void plexus_hal_log(const char* fmt, ...) {
             buf[len++] = '\r';
             buf[len++] = '\n';
         }
-        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, 100);
+        HAL_UART_Transmit(&PLEXUS_STM32_DEBUG_UART, (uint8_t*)buf, len, 100);
     }
 #else
     (void)fmt;

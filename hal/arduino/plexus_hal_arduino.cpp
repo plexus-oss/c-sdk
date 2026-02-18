@@ -186,7 +186,15 @@ void plexus_hal_log(const char* fmt, ...) {
 
 } /* extern "C" */
 
-/* Arduino-specific helper class */
+/* ========================================================================= */
+/* Arduino C++ wrapper                                                       */
+/*                                                                           */
+/* Provides an idiomatic Arduino class matching the Python SDK's DX:         */
+/*   PlexusClient px("plx_xxx", "device-001");                              */
+/*   px.send("temperature", 72.5);                                          */
+/*   px.tick();                                                              */
+/* ========================================================================= */
+
 class PlexusClient {
 public:
     PlexusClient(const char* apiKey, const char* sourceId)
@@ -200,32 +208,46 @@ public:
         }
     }
 
+    /* Non-copyable */
+    PlexusClient(const PlexusClient&) = delete;
+    PlexusClient& operator=(const PlexusClient&) = delete;
+
     bool isValid() const { return _client != nullptr; }
 
+    /** Send a numeric metric — the common case. Matches Python's px.send(). */
+    plexus_err_t send(const char* metric, double value) {
+        return plexus_send_number(_client, metric, value);
+    }
+
+    /** Explicit name for numeric metrics. */
     plexus_err_t sendNumber(const char* metric, double value) {
         return plexus_send_number(_client, metric, value);
     }
 
-    plexus_err_t sendString(const char* metric, const char* value) {
-#if PLEXUS_ENABLE_STRING_VALUES
-        return plexus_send_string(_client, metric, value);
-#else
-        (void)metric; (void)value;
-        return PLEXUS_ERR_HAL;
-#endif
+    /** Send with explicit timestamp (ms since epoch). */
+    plexus_err_t sendNumberTs(const char* metric, double value, uint64_t timestamp_ms) {
+        return plexus_send_number_ts(_client, metric, value, timestamp_ms);
     }
 
-    plexus_err_t sendBool(const char* metric, bool value) {
-#if PLEXUS_ENABLE_BOOL_VALUES
-        return plexus_send_bool(_client, metric, value);
-#else
-        (void)metric; (void)value;
-        return PLEXUS_ERR_HAL;
-#endif
+#if PLEXUS_ENABLE_STRING_VALUES
+    plexus_err_t sendString(const char* metric, const char* value) {
+        return plexus_send_string(_client, metric, value);
     }
+#endif
+
+#if PLEXUS_ENABLE_BOOL_VALUES
+    plexus_err_t sendBool(const char* metric, bool value) {
+        return plexus_send_bool(_client, metric, value);
+    }
+#endif
 
     plexus_err_t flush() {
         return plexus_flush(_client);
+    }
+
+    /** Call from loop() — handles auto-flush and command polling. */
+    plexus_err_t tick() {
+        return plexus_tick(_client);
     }
 
     uint16_t pendingCount() const {
@@ -248,10 +270,7 @@ public:
         return plexus_set_flush_count(_client, count);
     }
 
-    plexus_err_t tick() {
-        return plexus_tick(_client);
-    }
-
+    /** Access the underlying C handle (for advanced use). */
     plexus_client_t* handle() { return _client; }
 
 private:

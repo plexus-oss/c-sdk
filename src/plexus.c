@@ -7,10 +7,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define PLEXUS_VERSION "0.1.1"
-
-#define PLEXUS_USER_AGENT "plexus-c-sdk/" PLEXUS_VERSION
-
 /* ------------------------------------------------------------------------- */
 /* Error messages                                                            */
 /* ------------------------------------------------------------------------- */
@@ -39,7 +35,7 @@ const char* plexus_strerror(plexus_err_t err) {
 }
 
 const char* plexus_version(void) {
-    return PLEXUS_VERSION;
+    return PLEXUS_SDK_VERSION;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -74,11 +70,12 @@ size_t plexus_client_size(void) {
 }
 
 /**
- * Common initialization logic shared by plexus_init and plexus_init_static
+ * Common initialization logic shared by plexus_init and plexus_init_static.
  */
 static plexus_client_t* client_init_common(plexus_client_t* client,
                                              const char* api_key,
-                                             const char* source_id) {
+                                             const char* source_id,
+                                             bool heap_allocated) {
     memset(client, 0, sizeof(plexus_client_t));
 
     strncpy(client->api_key, api_key, PLEXUS_MAX_API_KEY_LEN - 1);
@@ -92,6 +89,7 @@ static plexus_client_t* client_init_common(plexus_client_t* client,
     client->retry_backoff_ms = 0;
     client->rate_limit_until_ms = 0;
     client->initialized = true;
+    client->_heap_allocated = heap_allocated;
 
 #if PLEXUS_ENABLE_COMMANDS
     client->command_handler = NULL;
@@ -100,7 +98,7 @@ static plexus_client_t* client_init_common(plexus_client_t* client,
 
 #if PLEXUS_DEBUG
     plexus_hal_log("Plexus SDK v%s initialized (source: %s, client size: %u bytes)",
-                   PLEXUS_VERSION, source_id, (unsigned)sizeof(plexus_client_t));
+                   PLEXUS_SDK_VERSION, source_id, (unsigned)sizeof(plexus_client_t));
 #endif
 
     return client;
@@ -123,7 +121,7 @@ plexus_client_t* plexus_init(const char* api_key, const char* source_id) {
         return NULL;
     }
 
-    return client_init_common(client, api_key, source_id);
+    return client_init_common(client, api_key, source_id, true);
 }
 
 plexus_client_t* plexus_init_static(void* buf, size_t buf_size,
@@ -142,12 +140,15 @@ plexus_client_t* plexus_init_static(void* buf, size_t buf_size,
         return NULL;
     }
 
-    return client_init_common((plexus_client_t*)buf, api_key, source_id);
+    return client_init_common((plexus_client_t*)buf, api_key, source_id, false);
 }
 
 void plexus_free(plexus_client_t* client) {
-    if (client) {
-        client->initialized = false;
+    if (!client) {
+        return;
+    }
+    client->initialized = false;
+    if (client->_heap_allocated) {
         free(client);
     }
 }
@@ -360,7 +361,6 @@ static uint32_t backoff_rand(uint32_t seed) {
 
 /**
  * Compute next backoff delay with exponential growth and jitter.
- * Returns the delay in ms and updates the client's backoff state.
  */
 static uint32_t compute_backoff(plexus_client_t* client) {
     if (client->retry_backoff_ms == 0) {
@@ -384,6 +384,18 @@ static uint32_t compute_backoff(plexus_client_t* client) {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Tick wraparound helper                                                    */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Check if a deadline (set relative to a past tick) has passed.
+ * Handles uint32_t wraparound correctly using signed comparison.
+ */
+static bool tick_elapsed(uint32_t now, uint32_t deadline) {
+    return (int32_t)(now - deadline) >= 0;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Flush & network                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -398,12 +410,10 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
     /* Respect rate limit cooldown */
     if (client->rate_limit_until_ms > 0) {
         uint32_t now = plexus_hal_get_tick_ms();
-        if (now < client->rate_limit_until_ms &&
-            (client->rate_limit_until_ms - now) < PLEXUS_RATE_LIMIT_COOLDOWN_MS * 2) {
-            /* Still in cooldown period */
+        if (!tick_elapsed(now, client->rate_limit_until_ms)) {
             return PLEXUS_ERR_RATE_LIMIT;
         }
-        /* Cooldown expired or tick wrapped */
+        /* Cooldown expired */
         client->rate_limit_until_ms = 0;
     }
 
@@ -536,9 +546,8 @@ plexus_err_t plexus_tick(plexus_client_t* client) {
 #if PLEXUS_ENABLE_COMMANDS
     if (client->command_handler) {
         uint32_t now_ms = plexus_hal_get_tick_ms();
-        uint32_t cmd_elapsed = now_ms - client->last_command_poll_ms;
-
-        if (cmd_elapsed >= PLEXUS_COMMAND_POLL_INTERVAL_MS || now_ms < client->last_command_poll_ms) {
+        uint32_t cmd_deadline = client->last_command_poll_ms + PLEXUS_COMMAND_POLL_INTERVAL_MS;
+        if (tick_elapsed(now_ms, cmd_deadline)) {
             client->last_command_poll_ms = now_ms;
             plexus_poll_commands(client);
         }
@@ -556,9 +565,8 @@ plexus_err_t plexus_tick(plexus_client_t* client) {
             ? client->flush_interval_ms : PLEXUS_AUTO_FLUSH_INTERVAL_MS;
         if (interval > 0) {
             uint32_t now_ms = plexus_hal_get_tick_ms();
-            uint32_t elapsed = now_ms - client->last_flush_ms;
-
-            if (elapsed >= interval || now_ms < client->last_flush_ms) {
+            uint32_t flush_deadline = client->last_flush_ms + interval;
+            if (tick_elapsed(now_ms, flush_deadline)) {
                 return plexus_flush(client);
             }
         }

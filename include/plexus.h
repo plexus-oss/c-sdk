@@ -1,22 +1,17 @@
 /**
  * @file plexus.h
- * @brief Plexus C SDK - Minimal footprint telemetry client for embedded devices
+ * @brief Plexus C SDK - Minimal footprint telemetry for embedded devices
  *
- * This SDK provides a simple interface for sending telemetry data from
- * ESP32, STM32, and Arduino devices to the Plexus ingest API.
+ * Send metrics from ESP32, STM32, and Arduino to the Plexus ingest API.
  *
- * Memory usage depends on configuration. Call plexus_client_size() or use
- * PLEXUS_CLIENT_STATIC_BUF() to determine the exact size for your build.
+ * Quickstart:
+ *   plexus_client_t* px = plexus_init("plx_xxx", "device-001");
+ *   plexus_send(px, "temperature", 72.5);
+ *   plexus_flush(px);
+ *   plexus_free(px);
  *
- * Thread safety: This SDK is NOT thread-safe. Confine all calls for a given
- * client to a single thread/task. Multiple clients in separate tasks is safe.
- *
- * @example
- *   plexus_client_t* client = plexus_init("plx_xxx", "device-001");
- *   plexus_send_number(client, "temperature", 72.5);
- *   plexus_send_number(client, "humidity", 45.0);
- *   plexus_flush(client);
- *   plexus_free(client);
+ * Thread safety: NOT thread-safe. Confine all calls for a given client
+ * to a single thread/task. Multiple clients in separate tasks is safe.
  */
 
 #ifndef PLEXUS_H
@@ -30,6 +25,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* ------------------------------------------------------------------------- */
+/* Version                                                                   */
+/* ------------------------------------------------------------------------- */
+
+#define PLEXUS_SDK_VERSION "0.2.0"
 
 /* ------------------------------------------------------------------------- */
 /* Compiler attributes                                                       */
@@ -63,85 +64,176 @@ typedef enum {
     PLEXUS_ERR__COUNT           /* Sentinel — must be last */
 } plexus_err_t;
 
-/* ------------------------------------------------------------------------- */
-/* Opaque client handle                                                      */
-/* ------------------------------------------------------------------------- */
+/* ========================================================================= */
+/* Client struct layout (exposed for compile-time sizing only)               */
+/*                                                                           */
+/* These types are public so that sizeof(plexus_client_t) resolves at        */
+/* compile time, enabling stack/static allocation without malloc.            */
+/*                                                                           */
+/* >>> DO NOT access struct members directly. <<<                            */
+/* >>> The layout WILL change between versions. <<<                          */
+/* ========================================================================= */
+
+/** @internal Value type tag */
+typedef enum {
+    PLEXUS_VALUE_NUMBER,
+    PLEXUS_VALUE_STRING,
+    PLEXUS_VALUE_BOOL,
+} plexus_value_type_t;
+
+/** @internal Tagged value union */
+typedef struct {
+    plexus_value_type_t type;
+    union {
+        double number;
+#if PLEXUS_ENABLE_STRING_VALUES
+        char string[PLEXUS_MAX_STRING_VALUE_LEN];
+#endif
+#if PLEXUS_ENABLE_BOOL_VALUES
+        bool boolean;
+#endif
+    } data;
+} plexus_value_t;
+
+/** @internal Single queued metric */
+typedef struct {
+    char name[PLEXUS_MAX_METRIC_NAME_LEN];
+    plexus_value_t value;
+    uint64_t timestamp_ms;
+#if PLEXUS_ENABLE_TAGS
+    char tag_keys[4][32];
+    char tag_values[4][32];
+    uint8_t tag_count;
+#endif
+} plexus_metric_t;
+
+/* Command types (when enabled) */
+#if PLEXUS_ENABLE_COMMANDS
+
+typedef struct {
+    char id[64];
+    char command[PLEXUS_MAX_COMMAND_LEN];
+    int timeout_seconds;
+} plexus_command_t;
+
+typedef plexus_err_t (*plexus_command_handler_t)(
+    const plexus_command_t* cmd,
+    char* output,
+    int* exit_code
+);
+
+#endif /* PLEXUS_ENABLE_COMMANDS */
+
+/** @internal Client struct — do not access members directly */
+struct plexus_client {
+    char api_key[PLEXUS_MAX_API_KEY_LEN];
+    char source_id[PLEXUS_MAX_SOURCE_ID_LEN];
+    char endpoint[PLEXUS_MAX_ENDPOINT_LEN];
+
+    plexus_metric_t metrics[PLEXUS_MAX_METRICS];
+    uint16_t metric_count;
+
+    uint32_t last_flush_ms;
+    uint32_t total_sent;
+    uint32_t total_errors;
+
+    /* Runtime-configurable overrides (0 = use compile-time default) */
+    uint32_t flush_interval_ms;
+    uint16_t auto_flush_count;
+
+    /* Retry backoff state */
+    uint32_t retry_backoff_ms;
+    uint32_t rate_limit_until_ms;
+
+    bool initialized;
+    bool _heap_allocated; /* true = created via plexus_init(), safe to free() */
+
+    /* Per-client JSON serialization buffer (no global state) */
+    char json_buffer[PLEXUS_JSON_BUFFER_SIZE];
+
+#if PLEXUS_ENABLE_COMMANDS
+    plexus_command_handler_t command_handler;
+    uint32_t last_command_poll_ms;
+#endif
+};
 
 typedef struct plexus_client plexus_client_t;
+
+/* ------------------------------------------------------------------------- */
+/* Static allocation helpers                                                 */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Compile-time size of plexus_client_t for static buffer declarations.
+ *
+ * @example
+ *   static uint8_t buf[PLEXUS_CLIENT_STATIC_SIZE];
+ *   plexus_client_t* px = plexus_init_static(buf, sizeof(buf), key, id);
+ */
+#define PLEXUS_CLIENT_STATIC_SIZE  sizeof(plexus_client_t)
+
+/**
+ * Declare a correctly-sized and aligned static buffer for a client.
+ *
+ * @example
+ *   PLEXUS_CLIENT_STATIC_BUF(my_buf);
+ *   plexus_client_t* px = plexus_init_static(
+ *       &my_buf, sizeof(my_buf), "plx_xxx", "device-001");
+ */
+#define PLEXUS_CLIENT_STATIC_BUF(name) \
+    static plexus_client_t name
 
 /* ------------------------------------------------------------------------- */
 /* Core API                                                                  */
 /* ------------------------------------------------------------------------- */
 
 /**
- * Initialize a Plexus client (heap-allocated)
+ * Initialize a Plexus client (heap-allocated).
  *
  * @param api_key   Your Plexus API key (e.g., "plx_xxxxx")
- * @param source_id Device/source identifier (e.g., "drone-001").
+ * @param source_id Device identifier (e.g., "drone-001").
  *                  Must contain only [a-zA-Z0-9._-] characters.
- * @return          Pointer to client, or NULL on failure
+ * @return          Client pointer, or NULL on failure
  *
- * @note The returned client must be freed with plexus_free()
+ * @note Free with plexus_free() when done.
  */
 plexus_client_t* plexus_init(const char* api_key, const char* source_id);
 
 /**
- * Initialize a Plexus client in user-provided memory (no malloc)
+ * Initialize a Plexus client in user-provided memory (no malloc).
  *
- * Use this on platforms where dynamic allocation is prohibited or undesirable.
- * The buffer must be at least plexus_client_size() bytes and remain valid
- * for the lifetime of the client. Do NOT call plexus_free() on a statically
- * initialized client — just stop using it.
+ * The buffer must be at least sizeof(plexus_client_t) bytes and remain
+ * valid for the lifetime of the client. Do NOT call plexus_free() on a
+ * statically initialized client.
  *
- * @param buf       User-provided buffer (must be at least plexus_client_size() bytes)
+ * @param buf       Buffer (at least PLEXUS_CLIENT_STATIC_SIZE bytes)
  * @param buf_size  Size of the provided buffer
  * @param api_key   Your Plexus API key
- * @param source_id Device/source identifier (same restrictions as plexus_init)
- * @return          Pointer to client (== buf on success), or NULL on failure
- *
- * @example
- *   static uint8_t client_buf[PLEXUS_CLIENT_STATIC_SIZE];
- *   plexus_client_t* client = plexus_init_static(
- *       client_buf, sizeof(client_buf), "plx_xxx", "device-001");
+ * @param source_id Device identifier (same restrictions as plexus_init)
+ * @return          Client pointer (== buf on success), or NULL on failure
  */
 plexus_client_t* plexus_init_static(void* buf, size_t buf_size,
                                       const char* api_key, const char* source_id);
 
 /**
- * Get the required buffer size for plexus_init_static()
- *
- * @return Size in bytes needed for a plexus_client_t with current config
+ * Get the required buffer size for plexus_init_static().
+ * Equivalent to sizeof(plexus_client_t) but callable at runtime.
  */
 size_t plexus_client_size(void);
 
 /**
- * Convenience macro to declare a correctly-sized static buffer.
+ * Free a heap-allocated Plexus client.
  *
- * @example
- *   PLEXUS_CLIENT_STATIC_BUF(my_buf);
- *   plexus_client_t* client = plexus_init_static(
- *       my_buf, sizeof(my_buf), "plx_xxx", "device-001");
- */
-#define PLEXUS_CLIENT_STATIC_SIZE  (sizeof(plexus_client_t))
-
-/* Forward-declare struct so sizeof works in the macro above.
- * The actual definition is in plexus_internal.h. Application code
- * must not access struct members directly. */
-
-/**
- * Free a Plexus client and release resources
+ * Safe to pass NULL. Does NOT flush — call plexus_flush() first if needed.
+ * If called on a statically-allocated client (plexus_init_static), this
+ * is a no-op (the client is marked uninitialized but not freed).
  *
- * Call plexus_flush() before freeing if you need to ensure all queued
- * metrics are sent. This function does NOT flush automatically — any
- * unsent metrics in the buffer will be discarded.
- *
- * @param client Client to free (safe to pass NULL).
- *               Must have been created with plexus_init(), NOT plexus_init_static().
+ * @param client Client to free
  */
 void plexus_free(plexus_client_t* client);
 
 /**
- * Set custom ingest endpoint URL
+ * Set custom ingest endpoint URL.
  *
  * @param client   Plexus client
  * @param endpoint Full URL (e.g., "https://custom.domain/api/ingest")
@@ -150,19 +242,19 @@ void plexus_free(plexus_client_t* client);
 plexus_err_t plexus_set_endpoint(plexus_client_t* client, const char* endpoint);
 
 /**
- * Set runtime flush interval (overrides PLEXUS_AUTO_FLUSH_INTERVAL_MS)
+ * Set runtime flush interval (overrides PLEXUS_AUTO_FLUSH_INTERVAL_MS).
  *
  * @param client      Plexus client
- * @param interval_ms Flush interval in milliseconds (0 = disable time-based flush)
+ * @param interval_ms Flush interval in milliseconds (0 = disable)
  * @return            PLEXUS_OK on success
  */
 plexus_err_t plexus_set_flush_interval(plexus_client_t* client, uint32_t interval_ms);
 
 /**
- * Set runtime auto-flush count (overrides PLEXUS_AUTO_FLUSH_COUNT)
+ * Set runtime auto-flush count (overrides PLEXUS_AUTO_FLUSH_COUNT).
  *
  * @param client Plexus client
- * @param count  Flush after this many queued metrics (0 = disable count-based flush)
+ * @param count  Flush after this many queued metrics (0 = disable)
  * @return       PLEXUS_OK on success
  */
 plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count);
@@ -172,19 +264,28 @@ plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count);
 /* ------------------------------------------------------------------------- */
 
 /**
- * Queue a numeric metric for sending
+ * Queue a numeric metric.
  *
  * @param client Plexus client
  * @param metric Metric name (e.g., "temperature")
  * @param value  Numeric value
- * @return       PLEXUS_OK on success, PLEXUS_ERR_BUFFER_FULL if buffer full
- *
- * @note Call plexus_flush() to send queued metrics
+ * @return       PLEXUS_OK, or PLEXUS_ERR_BUFFER_FULL if buffer full
  */
 plexus_err_t plexus_send_number(plexus_client_t* client, const char* metric, double value);
 
 /**
- * Queue a numeric metric with timestamp
+ * Convenience alias: plexus_send() == plexus_send_number().
+ *
+ * Matches the Python SDK's px.send("metric", value) pattern.
+ *
+ * @example
+ *   plexus_send(px, "temperature", 72.5);
+ */
+#define plexus_send(client, metric, value) \
+    plexus_send_number((client), (metric), (value))
+
+/**
+ * Queue a numeric metric with explicit timestamp.
  *
  * @param client       Plexus client
  * @param metric       Metric name
@@ -197,7 +298,7 @@ plexus_err_t plexus_send_number_ts(plexus_client_t* client, const char* metric,
 
 #if PLEXUS_ENABLE_STRING_VALUES
 /**
- * Queue a string metric for sending
+ * Queue a string metric.
  *
  * @param client Plexus client
  * @param metric Metric name
@@ -209,7 +310,7 @@ plexus_err_t plexus_send_string(plexus_client_t* client, const char* metric, con
 
 #if PLEXUS_ENABLE_BOOL_VALUES
 /**
- * Queue a boolean metric for sending
+ * Queue a boolean metric.
  *
  * @param client Plexus client
  * @param metric Metric name
@@ -221,7 +322,7 @@ plexus_err_t plexus_send_bool(plexus_client_t* client, const char* metric, bool 
 
 #if PLEXUS_ENABLE_TAGS
 /**
- * Queue a numeric metric with tags
+ * Queue a numeric metric with tags.
  *
  * @param client     Plexus client
  * @param metric     Metric name
@@ -237,84 +338,54 @@ plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metr
 #endif
 
 /* ------------------------------------------------------------------------- */
-/* Flush & network operations                                                */
+/* Flush & network                                                           */
 /* ------------------------------------------------------------------------- */
 
 /**
- * Send all queued metrics to the Plexus API
+ * Send all queued metrics to the Plexus API.
+ *
+ * On success, the metric buffer is cleared.
+ * On network error, metrics remain in buffer for retry.
+ *
+ * WARNING: This function blocks during retries with exponential backoff.
+ * Worst case: ~14 seconds (3 retries with 8-second max backoff).
+ * On FreeRTOS, the calling task yields during delays. On bare-metal
+ * Arduino, delay() blocks the entire MCU.
  *
  * @param client Plexus client
  * @return       PLEXUS_OK on success, error code on failure
- *
- * @note On success, the metric buffer is cleared
- * @note On network error, metrics remain in buffer for retry
- * @note Uses exponential backoff with jitter between retries
  */
 plexus_err_t plexus_flush(plexus_client_t* client);
 
 /**
- * Call periodically from your main loop to handle time-based operations
+ * Call periodically from your main loop.
  *
- * This function:
- * - Flushes queued metrics when the flush interval elapses
- * - Polls for commands (if PLEXUS_ENABLE_COMMANDS is set)
- *
- * Returns PLEXUS_OK when idle (nothing to do). Only returns an error
- * if a flush or command poll actually fails.
+ * Handles time-based auto-flush and command polling (if enabled).
+ * Returns PLEXUS_OK when idle. Only returns an error if a flush
+ * or command poll actually fails.
  *
  * @param client Plexus client
- * @return       PLEXUS_OK on success or idle, error code on flush failure
+ * @return       PLEXUS_OK on success or idle
  */
 plexus_err_t plexus_tick(plexus_client_t* client);
 
-/**
- * Get number of queued metrics
- *
- * @param client Plexus client
- * @return       Number of metrics in buffer
- */
+/** Get number of queued metrics. */
 uint16_t plexus_pending_count(const plexus_client_t* client);
 
-/**
- * Clear all queued metrics without sending
- *
- * @param client Plexus client
- */
+/** Clear all queued metrics without sending. */
 void plexus_clear(plexus_client_t* client);
 
-/**
- * Get total number of successfully sent metrics (lifetime counter)
- *
- * @param client Plexus client
- * @return       Total metrics sent since init
- */
+/** Lifetime counter: total metrics successfully sent. */
 uint32_t plexus_total_sent(const plexus_client_t* client);
 
-/**
- * Get total number of send errors (lifetime counter)
- *
- * @param client Plexus client
- * @return       Total errors since init
- */
+/** Lifetime counter: total send errors. */
 uint32_t plexus_total_errors(const plexus_client_t* client);
 
 /* ------------------------------------------------------------------------- */
-/* Command support (opt-in via PLEXUS_ENABLE_COMMANDS)                       */
+/* Commands (opt-in via PLEXUS_ENABLE_COMMANDS)                              */
 /* ------------------------------------------------------------------------- */
 
 #if PLEXUS_ENABLE_COMMANDS
-
-typedef struct {
-    char id[64];
-    char command[PLEXUS_MAX_COMMAND_LEN];
-    int timeout_seconds;
-} plexus_command_t;
-
-typedef plexus_err_t (*plexus_command_handler_t)(
-    const plexus_command_t* cmd,
-    char* output,
-    int* exit_code
-);
 
 plexus_err_t plexus_register_command_handler(plexus_client_t* client,
                                               plexus_command_handler_t handler);
@@ -324,36 +395,19 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client);
 #endif /* PLEXUS_ENABLE_COMMANDS */
 
 /* ------------------------------------------------------------------------- */
-/* Utility functions                                                         */
+/* Utility                                                                   */
 /* ------------------------------------------------------------------------- */
 
-/**
- * Get error message string
- *
- * @param err Error code
- * @return    Human-readable error message
- */
+/** Get human-readable error message. */
 const char* plexus_strerror(plexus_err_t err);
 
-/**
- * Get SDK version string
- *
- * @return Version string (e.g., "0.1.1")
- */
+/** Get SDK version string (e.g., "0.2.0"). */
 const char* plexus_version(void);
 
 /* ------------------------------------------------------------------------- */
 /* HAL interface (implemented per platform)                                  */
 /* ------------------------------------------------------------------------- */
 
-/**
- * @param url        Target URL
- * @param api_key    API key for x-api-key header
- * @param user_agent User-Agent header value (e.g., "plexus-c-sdk/0.1.1")
- * @param body       JSON request body
- * @param body_len   Length of body in bytes
- * @return           PLEXUS_OK on 2xx, error code otherwise
- */
 plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
                                    const char* user_agent,
                                    const char* body, size_t body_len);

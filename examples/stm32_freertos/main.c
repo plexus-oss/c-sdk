@@ -154,8 +154,8 @@ static void telemetry_task(void const* argument) {
                temp, pressure, alarm);
 
         /* Queue metrics */
-        plexus_send_number(client, "temperature", (double)temp);
-        plexus_send_number(client, "pressure", (double)pressure);
+        plexus_send(client, "temperature", (double)temp);
+        plexus_send(client, "pressure", (double)pressure);
 #if PLEXUS_ENABLE_BOOL_VALUES
         plexus_send_bool(client, "alarm", alarm != 0);
 #endif

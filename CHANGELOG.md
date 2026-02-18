@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-18
+
+### Added
+
+- `plexus_send()` convenience macro — alias for `plexus_send_number()`, matches Python SDK's `px.send()` pattern
+- `PLEXUS_SDK_VERSION` constant in public header — single source of truth for version string
+- `PLEXUS_CLIENT_STATIC_BUF(name)` macro — declares a static client variable with correct type
+- `_heap_allocated` flag on client struct — enables safe `plexus_free()` on both heap and static clients
+- Arduino `PlexusClient::send()` method — shorter alias for `sendNumber()`
+- Arduino `PlexusClient::sendNumberTs()` method
+- ASan + UBSan enabled in test builds (disable with `-DPLEXUS_NO_SANITIZERS=ON`)
+- CTest integration — `ctest --test-dir build-test` runs all tests
+- `PLEXUS_MINIMAL_CONFIG` CMake option — builds with all optional features disabled
+- CI job for minimal-config build validation
+
+### Fixed
+
+- **PLEXUS_CLIENT_STATIC_SIZE now compiles for end users** — struct definition moved to public header (FreeRTOS `StaticTask_t` pattern) so `sizeof(plexus_client_t)` resolves at compile time
+- **plexus_free() on static clients no longer causes undefined behavior** — checks `_heap_allocated` before calling `free()`
+- **Infinity detection** — uses `isinf()` / `isnan()` from `<math.h>` instead of fragile `> 1e308` comparison
+- **Tick wraparound logic** — replaced unreliable `* 2` heuristic with signed comparison pattern `(int32_t)(now - deadline) >= 0` for correct uint32_t wrap handling
+- **json_extract_int INT_MIN overflow** — separate checks for positive (`> 2147483647`) and negative (`> 2147483648`) ranges, plus `digits == 0` guard
+- **Duplicate version strings eliminated** — `PLEXUS_SDK_VERSION` in `plexus.h` used everywhere (removed separate `PLEXUS_VERSION` in plexus.c and `PLEXUS_VERSION_STR` in plexus_internal.h)
+- **Duplicate PLEXUS_USER_AGENT** — single definition in `plexus_internal.h`, removed from plexus_commands.c
+- **STM32 HAL hardcoded peripherals** — `huart2` and `hrtc` now configurable via `PLEXUS_STM32_DEBUG_UART` and `PLEXUS_STM32_RTC` defines
+- **STM32 HTTP GET 2KB stack allocation** — reads directly into caller's buffer with `memmove()` for body extraction
+
+### Changed
+
+- Client struct fields exposed in public header (members prefixed with `_` — not part of public API)
+- Arduino `PlexusClient` is now non-copyable (deleted copy constructor and assignment operator)
+- Test suite expanded from 54 to 56 tests (37 core + 19 JSON)
+- Examples updated to use `plexus_send()` macro
+- README rewritten for "3 clicks" developer experience matching Python SDK flow
+
 ## [0.1.1] - 2026-02-18
 
 ### Added
@@ -68,5 +103,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow: host tests + PlatformIO cross-compilation for ESP32, ESP8266, STM32
 - Examples: ESP32 ESP-IDF, Arduino basic, STM32 FreeRTOS
 
+[0.2.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.2.0
 [0.1.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.1.1
 [0.1.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.1.0

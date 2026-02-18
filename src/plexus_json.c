@@ -9,6 +9,7 @@
 #include "plexus_internal.h"
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 
 /* Internal buffer management */
 typedef struct {
@@ -54,7 +55,7 @@ static void json_append_char(json_writer_t* w, char c) {
     w->buf[w->pos] = '\0';
 }
 
-/* Escape JSON string characters */
+/* Escape JSON string characters per RFC 8259 */
 static void json_append_escaped(json_writer_t* w, const char* str) {
     if (w->error || !str) return;
 
@@ -97,12 +98,12 @@ static void json_append_number(json_writer_t* w, double value) {
 
     char num_buf[32];
 
-    /* Handle special cases — JSON has no NaN/Infinity */
-    if (value != value) {  /* NaN */
+    /* Handle special IEEE 754 cases — JSON has no NaN/Infinity */
+    if (isnan(value)) {
         json_append(w, "null");
         return;
     }
-    if (value > 1e308 || value < -1e308) {  /* Infinity */
+    if (isinf(value)) {
         json_append(w, "null");
         return;
     }
@@ -124,11 +125,11 @@ static void json_append_uint64(json_writer_t* w, uint64_t value) {
 }
 
 /**
- * Serialize metrics to JSON format for ingest API
+ * Serialize metrics to JSON format for ingest API.
  *
  * Output format:
  * {
- *   "sdk": "c/0.1.1",
+ *   "sdk": "c/0.2.0",
  *   "points": [
  *     {
  *       "metric": "temperature",
@@ -148,7 +149,7 @@ int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_s
     json_writer_t w;
     json_init(&w, buf, buf_size);
 
-    json_append(&w, "{\"sdk\":\"c/" PLEXUS_VERSION_STR "\",\"points\":[");
+    json_append(&w, "{\"sdk\":\"c/" PLEXUS_SDK_VERSION "\",\"points\":[");
 
     for (uint16_t i = 0; i < client->metric_count; i++) {
         const plexus_metric_t* m = &client->metrics[i];
@@ -225,9 +226,8 @@ int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_s
 #if PLEXUS_ENABLE_COMMANDS
 
 /**
- * Minimal JSON string extractor
- * Finds "key":"value" in a JSON string and copies the value.
- * Returns 0 on success, -1 if key not found.
+ * Minimal JSON string extractor.
+ * Finds "key":"value" and copies the value. Returns 0 on success.
  */
 static int json_extract_string(const char* json, size_t json_len,
                                 const char* key, char* out, size_t out_size) {
@@ -263,8 +263,7 @@ static int json_extract_string(const char* json, size_t json_len,
 
 /**
  * Minimal JSON number extractor with overflow protection.
- * Finds "key":123 in a JSON string and returns the integer value.
- * Returns the value, or default_val if key not found or overflow.
+ * Finds "key":123 and returns the integer value, or default_val on error.
  */
 static int json_extract_int(const char* json, size_t json_len,
                              const char* key, int default_val) {
@@ -288,19 +287,26 @@ static int json_extract_int(const char* json, size_t json_len,
 
     int digits = 0;
     while (*num_start >= '0' && *num_start <= '9' && digits < 10) {
+        long prev = val;
         val = val * 10 + (*num_start - '0');
+        /* Overflow check: multiplication or addition wrapped */
+        if (val < prev) return default_val;
         num_start++;
         digits++;
-        /* Overflow guard */
-        if (val > 2147483647L) return default_val;
     }
+
+    if (digits == 0) return default_val;
+
+    /* Check range for signed int result */
+    if (sign == 1 && val > 2147483647L) return default_val;
+    if (sign == -1 && val > 2147483648L) return default_val;
 
     (void)json_len;
     return (int)(val * sign);
 }
 
 /**
- * Parse a command polling response JSON
+ * Parse a command polling response JSON.
  */
 int plexus_json_parse_command(const char* json, size_t json_len,
                                plexus_command_t* cmd) {
@@ -319,7 +325,7 @@ int plexus_json_parse_command(const char* json, size_t json_len,
 }
 
 /**
- * Build a command result JSON payload
+ * Build a command result JSON payload.
  */
 int plexus_json_build_result(char* buf, size_t buf_size,
                               const char* status, int exit_code,
