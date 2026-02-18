@@ -57,7 +57,7 @@ static void uart_init(void) {
     __HAL_RCC_GPIOA_CLK_ENABLE();
 
     GPIO_InitTypeDef gpio = {0};
-    gpio.Pin       = GPIO_PIN_2 | GPIO_PIN_3;  /* PA2=TX, PA3=RX */
+    gpio.Pin       = GPIO_PIN_2 | GPIO_PIN_3;
     gpio.Mode      = GPIO_MODE_AF_PP;
     gpio.Pull      = GPIO_NOPULL;
     gpio.Speed     = GPIO_SPEED_FREQ_HIGH;
@@ -75,7 +75,6 @@ static void uart_init(void) {
     HAL_UART_Init(&huart2);
 }
 
-/* printf redirect to UART */
 int _write(int fd, char* ptr, int len) {
     (void)fd;
     HAL_UART_Transmit(&huart2, (uint8_t*)ptr, len, HAL_MAX_DELAY);
@@ -86,31 +85,8 @@ int _write(int fd, char* ptr, int len) {
 /* Network initialization stub                                               */
 /* ========================================================================= */
 
-/**
- * IMPORTANT: Replace this function with your CubeMX-generated LwIP
- * initialization code. The exact implementation depends on your network
- * hardware (Ethernet PHY, WiFi module, etc.).
- *
- * For Nucleo boards with Ethernet:
- *   - Enable ETH peripheral in CubeMX
- *   - Enable LwIP middleware with DHCP
- *   - CubeMX generates MX_LWIP_Init() automatically
- *
- * For WiFi modules (ESP-AT, WizFi360, etc.):
- *   - Configure the AT command interface
- *   - Bridge to LwIP or use the module's built-in TCP/IP stack
- */
 static void network_init_stub(void) {
     printf("Network init: replace this stub with CubeMX LwIP init\r\n");
-
-    /* Example for CubeMX-generated projects:
-     *   MX_LWIP_Init();
-     *
-     * Then wait for DHCP:
-     *   while (!netif_is_up(netif_default)) {
-     *       osDelay(100);
-     *   }
-     */
 }
 
 /* ========================================================================= */
@@ -118,7 +94,6 @@ static void network_init_stub(void) {
 /* ========================================================================= */
 
 static float read_temperature(void) {
-    /* Replace with real ADC/I2C sensor read */
     static float base = 25.0f;
     base += 0.1f;
     if (base > 35.0f) base = 20.0f;
@@ -126,7 +101,6 @@ static float read_temperature(void) {
 }
 
 static float read_pressure(void) {
-    /* Replace with real sensor read */
     static float base = 1013.0f;
     base += 0.5f;
     if (base > 1025.0f) base = 1005.0f;
@@ -134,7 +108,6 @@ static float read_pressure(void) {
 }
 
 static int read_alarm_state(void) {
-    /* Replace with real GPIO read */
     return 0;
 }
 
@@ -142,17 +115,22 @@ static int read_alarm_state(void) {
 /* Telemetry task                                                            */
 /* ========================================================================= */
 
+/* Static allocation — no malloc needed */
+static uint8_t plexus_buf[PLEXUS_CLIENT_STATIC_SIZE];
+
 static void telemetry_task(void const* argument) {
     (void)argument;
 
-    printf("Plexus SDK v%s\r\n", plexus_version());
+    printf("Plexus SDK v%s (client size: %u bytes)\r\n",
+           plexus_version(), (unsigned)plexus_client_size());
 
     /* Wait for network to be ready */
     network_init_stub();
     osDelay(2000);
 
-    /* Initialize Plexus client */
-    plexus_client_t* client = plexus_init(PLEXUS_API_KEY, PLEXUS_SOURCE_ID);
+    /* Initialize Plexus client using static allocation (no malloc) */
+    plexus_client_t* client = plexus_init_static(
+        plexus_buf, sizeof(plexus_buf), PLEXUS_API_KEY, PLEXUS_SOURCE_ID);
     if (!client) {
         printf("ERROR: Failed to initialize Plexus client\r\n");
         osThreadTerminate(NULL);
@@ -182,21 +160,19 @@ static void telemetry_task(void const* argument) {
         plexus_send_bool(client, "alarm", alarm != 0);
 #endif
 
-        /* Let plexus_tick() handle time-based auto-flush.
-         * It flushes when the configured interval elapses. */
+        /* Let plexus_tick() handle time-based auto-flush */
         plexus_err_t err = plexus_tick(client);
 
         if (err == PLEXUS_OK) {
-            printf("Telemetry sent (%lu total)\r\n",
-                   (unsigned long)plexus_total_sent(client));
-        } else if (err == PLEXUS_ERR_NO_DATA) {
-            /* No data or interval hasn't elapsed yet — normal */
+            if (plexus_total_sent(client) > 0) {
+                printf("Telemetry sent (%lu total)\r\n",
+                       (unsigned long)plexus_total_sent(client));
+            }
         } else if (err == PLEXUS_ERR_AUTH) {
             printf("FATAL: Authentication failed — check API key\r\n");
-            break;  /* Stop on auth failure */
+            break;
         } else if (err == PLEXUS_ERR_NETWORK) {
             printf("Network error — will retry next cycle\r\n");
-            /* Metrics stay in buffer for next flush attempt */
         } else {
             printf("Flush error: %s\r\n", plexus_strerror(err));
         }
@@ -204,7 +180,7 @@ static void telemetry_task(void const* argument) {
         osDelay(1000);
     }
 
-    plexus_free(client);
+    /* Don't call plexus_free() — client was statically allocated */
     osThreadTerminate(NULL);
 }
 
@@ -228,6 +204,5 @@ int main(void) {
     /* Start FreeRTOS scheduler */
     osKernelStart();
 
-    /* Should never reach here */
     for (;;) {}
 }

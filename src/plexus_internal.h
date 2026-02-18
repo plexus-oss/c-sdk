@@ -12,6 +12,9 @@
 
 #include "plexus.h"
 
+/* Version string for JSON payload — must match PLEXUS_VERSION in plexus.c */
+#define PLEXUS_VERSION_STR "0.1.1"
+
 /* ------------------------------------------------------------------------- */
 /* Value types (internal)                                                    */
 /* ------------------------------------------------------------------------- */
@@ -26,8 +29,12 @@ typedef struct {
     plexus_value_type_t type;
     union {
         double number;
+#if PLEXUS_ENABLE_STRING_VALUES
         char string[PLEXUS_MAX_STRING_VALUE_LEN];
+#endif
+#if PLEXUS_ENABLE_BOOL_VALUES
         bool boolean;
+#endif
     } data;
 } plexus_value_t;
 
@@ -50,14 +57,6 @@ typedef struct {
 /* Client structure (internal)                                               */
 /* ------------------------------------------------------------------------- */
 
-#if PLEXUS_ENABLE_COMMANDS
-typedef plexus_err_t (*plexus_command_handler_fn)(
-    const void* cmd,
-    char* output,
-    int* exit_code
-);
-#endif
-
 struct plexus_client {
     char api_key[PLEXUS_MAX_API_KEY_LEN];
     char source_id[PLEXUS_MAX_SOURCE_ID_LEN];
@@ -74,13 +73,17 @@ struct plexus_client {
     uint32_t flush_interval_ms;
     uint16_t auto_flush_count;
 
+    /* Retry backoff state */
+    uint32_t retry_backoff_ms;       /* Current backoff delay (0 = no backoff) */
+    uint32_t rate_limit_until_ms;    /* Tick at which rate limit cooldown expires */
+
     bool initialized;
 
     /* Per-client JSON serialization buffer (avoids global state) */
     char json_buffer[PLEXUS_JSON_BUFFER_SIZE];
 
 #if PLEXUS_ENABLE_COMMANDS
-    plexus_command_handler_fn command_handler;
+    plexus_command_handler_t command_handler;
     uint32_t last_command_poll_ms;
 #endif
 };

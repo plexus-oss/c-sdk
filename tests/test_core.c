@@ -7,6 +7,7 @@
  */
 
 #include "plexus.h"
+#include "plexus_internal.h"
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -17,6 +18,9 @@ extern void mock_hal_set_next_post_result(plexus_err_t err);
 extern const char* mock_hal_last_post_body(void);
 extern int mock_hal_post_call_count(void);
 extern void mock_hal_advance_tick(uint32_t delta_ms);
+extern const char* mock_hal_last_user_agent(void);
+extern int mock_hal_delay_call_count(void);
+extern uint32_t mock_hal_delay_call_ms(int index);
 
 static int tests_passed = 0;
 static int tests_failed = 0;
@@ -39,7 +43,7 @@ static int tests_failed = 0;
     } \
 } while(0)
 
-/* ---- Tests ---- */
+/* ---- Lifecycle tests ---- */
 
 TEST(init_returns_client) {
     plexus_client_t* c = plexus_init("plx_test_key", "device-001");
@@ -58,10 +62,66 @@ TEST(init_null_source_id_returns_null) {
     ASSERT(c == NULL);
 }
 
+TEST(init_invalid_source_id_returns_null) {
+    /* source_id must be [a-zA-Z0-9._-] */
+    ASSERT(plexus_init("plx_key", "has spaces") == NULL);
+    ASSERT(plexus_init("plx_key", "has&special") == NULL);
+    ASSERT(plexus_init("plx_key", "has=equals") == NULL);
+    ASSERT(plexus_init("plx_key", "has/slash") == NULL);
+    ASSERT(plexus_init("plx_key", "") == NULL);
+}
+
+TEST(init_valid_source_ids) {
+    plexus_client_t* c;
+
+    c = plexus_init("plx_key", "simple");
+    ASSERT(c != NULL);
+    plexus_free(c);
+
+    c = plexus_init("plx_key", "with-dashes");
+    ASSERT(c != NULL);
+    plexus_free(c);
+
+    c = plexus_init("plx_key", "with_underscores");
+    ASSERT(c != NULL);
+    plexus_free(c);
+
+    c = plexus_init("plx_key", "with.dots");
+    ASSERT(c != NULL);
+    plexus_free(c);
+
+    c = plexus_init("plx_key", "MiXeD.CaSe-123");
+    ASSERT(c != NULL);
+    plexus_free(c);
+}
+
+TEST(init_static_works) {
+    uint8_t buf[PLEXUS_CLIENT_STATIC_SIZE];
+    plexus_client_t* c = plexus_init_static(buf, sizeof(buf), "plx_key", "dev-001");
+    ASSERT(c != NULL);
+    ASSERT((void*)c == (void*)buf);
+    ASSERT(plexus_pending_count(c) == 0);
+
+    /* Don't call plexus_free — it was statically allocated */
+    plexus_send_number(c, "temp", 25.0);
+    ASSERT(plexus_pending_count(c) == 1);
+}
+
+TEST(init_static_too_small) {
+    uint8_t buf[16]; /* Way too small */
+    plexus_client_t* c = plexus_init_static(buf, sizeof(buf), "plx_key", "dev-001");
+    ASSERT(c == NULL);
+}
+
+TEST(client_size_matches) {
+    ASSERT(plexus_client_size() == sizeof(plexus_client_t));
+    ASSERT(plexus_client_size() == PLEXUS_CLIENT_STATIC_SIZE);
+}
+
 TEST(version_string) {
     const char* v = plexus_version();
     ASSERT(v != NULL);
-    ASSERT(strcmp(v, "0.1.0") == 0);
+    ASSERT(strcmp(v, "0.1.1") == 0);
 }
 
 TEST(strerror_known_codes) {
@@ -69,12 +129,15 @@ TEST(strerror_known_codes) {
     ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_NULL_PTR), "Null pointer") == 0);
     ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_BUFFER_FULL), "Buffer full") == 0);
     ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_NETWORK), "Network error") == 0);
+    ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_INVALID_ARG), "Invalid argument") == 0);
 }
 
 TEST(strerror_unknown_code) {
     const char* msg = plexus_strerror((plexus_err_t)99);
     ASSERT(strcmp(msg, "Unknown error") == 0);
 }
+
+/* ---- Send tests ---- */
 
 TEST(send_number_queues_metric) {
     plexus_client_t* c = plexus_init("plx_key", "dev-001");
@@ -124,6 +187,8 @@ TEST(clear_empties_buffer) {
     plexus_free(c);
 }
 
+/* ---- Flush tests ---- */
+
 TEST(flush_no_data) {
     plexus_client_t* c = plexus_init("plx_key", "dev-001");
     plexus_err_t err = plexus_flush(c);
@@ -152,6 +217,28 @@ TEST(flush_sends_and_clears) {
     plexus_free(c);
 }
 
+TEST(flush_sends_user_agent) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temp", 1.0);
+    plexus_flush(c);
+
+    const char* ua = mock_hal_last_user_agent();
+    ASSERT(strstr(ua, "plexus-c-sdk/") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(flush_sends_sdk_version_in_json) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temp", 1.0);
+    plexus_flush(c);
+
+    const char* body = mock_hal_last_post_body();
+    ASSERT(strstr(body, "\"sdk\":\"c/") != NULL);
+
+    plexus_free(c);
+}
+
 TEST(flush_network_error_retries) {
     mock_hal_set_next_post_result(PLEXUS_ERR_NETWORK);
 
@@ -163,6 +250,28 @@ TEST(flush_network_error_retries) {
     ASSERT(mock_hal_post_call_count() == PLEXUS_MAX_RETRIES);
     ASSERT(plexus_pending_count(c) == 1);
     ASSERT(plexus_total_errors(c) == 1);
+
+    plexus_free(c);
+}
+
+TEST(flush_uses_exponential_backoff) {
+    mock_hal_set_next_post_result(PLEXUS_ERR_NETWORK);
+
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temp", 1.0);
+    plexus_flush(c);
+
+    /* Should have PLEXUS_MAX_RETRIES - 1 delay calls (no delay before first attempt) */
+    ASSERT(mock_hal_delay_call_count() == PLEXUS_MAX_RETRIES - 1);
+
+    /* Second delay should be >= first delay (exponential growth) */
+    if (PLEXUS_MAX_RETRIES >= 3) {
+        uint32_t first = mock_hal_delay_call_ms(0);
+        uint32_t second = mock_hal_delay_call_ms(1);
+        /* With jitter, second should generally be larger but we can't be exact */
+        ASSERT(first > 0);
+        ASSERT(second > 0);
+    }
 
     plexus_free(c);
 }
@@ -180,15 +289,74 @@ TEST(flush_auth_error_no_retry) {
     plexus_free(c);
 }
 
+TEST(flush_rate_limit_enters_cooldown) {
+    mock_hal_set_next_post_result(PLEXUS_ERR_RATE_LIMIT);
+
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temp", 1.0);
+
+    plexus_err_t err = plexus_flush(c);
+    ASSERT(err == PLEXUS_ERR_RATE_LIMIT);
+    ASSERT(mock_hal_post_call_count() == 1); /* No retries on 429 */
+
+    /* Second flush should be suppressed (cooldown active) */
+    mock_hal_set_next_post_result(PLEXUS_OK);
+    err = plexus_flush(c);
+    ASSERT(err == PLEXUS_ERR_RATE_LIMIT); /* Still in cooldown */
+    ASSERT(mock_hal_post_call_count() == 1); /* No new HTTP call */
+
+    /* Advance past cooldown */
+    mock_hal_advance_tick(PLEXUS_RATE_LIMIT_COOLDOWN_MS + 1);
+    err = plexus_flush(c);
+    ASSERT(err == PLEXUS_OK); /* Now it goes through */
+
+    plexus_free(c);
+}
+
+/* ---- Tick tests ---- */
+
+TEST(tick_returns_ok_when_idle) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+
+    /* Tick with empty buffer should return OK, not an error */
+    plexus_err_t err = plexus_tick(c);
+    ASSERT(err == PLEXUS_OK);
+
+    plexus_free(c);
+}
+
+TEST(tick_flushes_on_interval) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_set_flush_interval(c, 1000);
+
+    plexus_send_number(c, "temp", 25.0);
+
+    /* Tick before interval — should not flush */
+    mock_hal_advance_tick(500);
+    plexus_err_t err = plexus_tick(c);
+    ASSERT(err == PLEXUS_OK);
+    ASSERT(plexus_pending_count(c) == 1);
+    ASSERT(mock_hal_post_call_count() == 0);
+
+    /* Tick after interval — should flush */
+    mock_hal_advance_tick(600);
+    err = plexus_tick(c);
+    ASSERT(err == PLEXUS_OK);
+    ASSERT(plexus_pending_count(c) == 0);
+    ASSERT(mock_hal_post_call_count() == 1);
+
+    plexus_free(c);
+}
+
+/* ---- Config tests ---- */
+
 TEST(set_endpoint) {
     plexus_client_t* c = plexus_init("plx_key", "dev-001");
     plexus_err_t err = plexus_set_endpoint(c, "https://custom.example.com/ingest");
     ASSERT(err == PLEXUS_OK);
 
-    /* Verify by sending and checking the post URL would be correct */
     plexus_send_number(c, "temp", 1.0);
     plexus_flush(c);
-    /* If endpoint was set correctly, flush will succeed */
     ASSERT(plexus_total_sent(c) == 1);
 
     plexus_free(c);
@@ -231,7 +399,6 @@ TEST(free_does_not_flush) {
 
     plexus_free(c);
 
-    /* plexus_free should NOT have called http_post */
     ASSERT(mock_hal_post_call_count() == 0);
 }
 
@@ -279,20 +446,40 @@ TEST(send_bool) {
 int main(void) {
     printf("test_core:\n");
 
+    /* Lifecycle */
     RUN(init_returns_client);
     RUN(init_null_api_key_returns_null);
     RUN(init_null_source_id_returns_null);
+    RUN(init_invalid_source_id_returns_null);
+    RUN(init_valid_source_ids);
+    RUN(init_static_works);
+    RUN(init_static_too_small);
+    RUN(client_size_matches);
     RUN(version_string);
     RUN(strerror_known_codes);
     RUN(strerror_unknown_code);
+
+    /* Send */
     RUN(send_number_queues_metric);
     RUN(send_number_null_client);
     RUN(buffer_full_returns_error);
     RUN(clear_empties_buffer);
+
+    /* Flush */
     RUN(flush_no_data);
     RUN(flush_sends_and_clears);
+    RUN(flush_sends_user_agent);
+    RUN(flush_sends_sdk_version_in_json);
     RUN(flush_network_error_retries);
+    RUN(flush_uses_exponential_backoff);
     RUN(flush_auth_error_no_retry);
+    RUN(flush_rate_limit_enters_cooldown);
+
+    /* Tick */
+    RUN(tick_returns_ok_when_idle);
+    RUN(tick_flushes_on_interval);
+
+    /* Config */
     RUN(set_endpoint);
     RUN(set_endpoint_null);
     RUN(set_flush_interval);

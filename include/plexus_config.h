@@ -4,6 +4,21 @@
  *
  * Override these defaults by defining them before including plexus.h
  * or via compiler flags (e.g., -DPLEXUS_MAX_METRICS=64)
+ *
+ * Memory sizing guide (approximate sizeof(plexus_client_t)):
+ *
+ *   Default config (all features):     ~17 KB
+ *   Minimal config (numbers only):     ~1.5 KB
+ *     -DPLEXUS_MAX_METRICS=8
+ *     -DPLEXUS_ENABLE_TAGS=0
+ *     -DPLEXUS_ENABLE_STRING_VALUES=0
+ *     -DPLEXUS_ENABLE_BOOL_VALUES=0
+ *     -DPLEXUS_JSON_BUFFER_SIZE=512
+ *     -DPLEXUS_MAX_ENDPOINT_LEN=128
+ *     -DPLEXUS_MAX_API_KEY_LEN=64
+ *
+ * Use plexus_client_size() at runtime or PLEXUS_CLIENT_STATIC_SIZE
+ * at compile time to get the exact size for your configuration.
  */
 
 #ifndef PLEXUS_CONFIG_H
@@ -51,8 +66,17 @@
 #define PLEXUS_MAX_RETRIES 3           /* Retry count on failure */
 #endif
 
-#ifndef PLEXUS_RETRY_DELAY_MS
-#define PLEXUS_RETRY_DELAY_MS 1000     /* Delay between retries */
+/* Exponential backoff settings for retries */
+#ifndef PLEXUS_RETRY_BASE_MS
+#define PLEXUS_RETRY_BASE_MS 500       /* Initial retry delay */
+#endif
+
+#ifndef PLEXUS_RETRY_MAX_MS
+#define PLEXUS_RETRY_MAX_MS 8000       /* Maximum retry delay */
+#endif
+
+#ifndef PLEXUS_RATE_LIMIT_COOLDOWN_MS
+#define PLEXUS_RATE_LIMIT_COOLDOWN_MS 30000 /* Cooldown after 429 response */
 #endif
 
 /* Auto-flush settings */

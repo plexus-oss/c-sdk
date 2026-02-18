@@ -22,7 +22,7 @@ body:
     attributes:
       label: SDK Version
       description: Output of plexus_version() or version in library.json
-      placeholder: "0.1.0"
+      placeholder: "0.1.1"
     validations:
       required: true
 

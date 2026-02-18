@@ -5,7 +5,8 @@
  * This SDK provides a simple interface for sending telemetry data from
  * ESP32, STM32, and Arduino devices to the Plexus ingest API.
  *
- * Memory usage depends on configuration. See README.md for sizing details.
+ * Memory usage depends on configuration. Call plexus_client_size() or use
+ * PLEXUS_CLIENT_STATIC_BUF() to determine the exact size for your build.
  *
  * Thread safety: This SDK is NOT thread-safe. Confine all calls for a given
  * client to a single thread/task. Multiple clients in separate tasks is safe.
@@ -31,6 +32,17 @@ extern "C" {
 #endif
 
 /* ------------------------------------------------------------------------- */
+/* Compiler attributes                                                       */
+/* ------------------------------------------------------------------------- */
+
+#if defined(__GNUC__) || defined(__clang__)
+#define PLEXUS_PRINTF_FMT(fmt_idx, arg_idx) \
+    __attribute__((format(printf, fmt_idx, arg_idx)))
+#else
+#define PLEXUS_PRINTF_FMT(fmt_idx, arg_idx)
+#endif
+
+/* ------------------------------------------------------------------------- */
 /* Error codes                                                               */
 /* ------------------------------------------------------------------------- */
 
@@ -47,6 +59,7 @@ typedef enum {
     PLEXUS_ERR_JSON,            /* JSON serialization error */
     PLEXUS_ERR_NOT_INITIALIZED, /* Client not initialized */
     PLEXUS_ERR_HAL,             /* HAL layer error */
+    PLEXUS_ERR_INVALID_ARG,     /* Invalid argument (bad characters, etc.) */
     PLEXUS_ERR__COUNT           /* Sentinel — must be last */
 } plexus_err_t;
 
@@ -61,15 +74,59 @@ typedef struct plexus_client plexus_client_t;
 /* ------------------------------------------------------------------------- */
 
 /**
- * Initialize a Plexus client
+ * Initialize a Plexus client (heap-allocated)
  *
  * @param api_key   Your Plexus API key (e.g., "plx_xxxxx")
- * @param source_id Device/source identifier (e.g., "drone-001")
+ * @param source_id Device/source identifier (e.g., "drone-001").
+ *                  Must contain only [a-zA-Z0-9._-] characters.
  * @return          Pointer to client, or NULL on failure
  *
  * @note The returned client must be freed with plexus_free()
  */
 plexus_client_t* plexus_init(const char* api_key, const char* source_id);
+
+/**
+ * Initialize a Plexus client in user-provided memory (no malloc)
+ *
+ * Use this on platforms where dynamic allocation is prohibited or undesirable.
+ * The buffer must be at least plexus_client_size() bytes and remain valid
+ * for the lifetime of the client. Do NOT call plexus_free() on a statically
+ * initialized client — just stop using it.
+ *
+ * @param buf       User-provided buffer (must be at least plexus_client_size() bytes)
+ * @param buf_size  Size of the provided buffer
+ * @param api_key   Your Plexus API key
+ * @param source_id Device/source identifier (same restrictions as plexus_init)
+ * @return          Pointer to client (== buf on success), or NULL on failure
+ *
+ * @example
+ *   static uint8_t client_buf[PLEXUS_CLIENT_STATIC_SIZE];
+ *   plexus_client_t* client = plexus_init_static(
+ *       client_buf, sizeof(client_buf), "plx_xxx", "device-001");
+ */
+plexus_client_t* plexus_init_static(void* buf, size_t buf_size,
+                                      const char* api_key, const char* source_id);
+
+/**
+ * Get the required buffer size for plexus_init_static()
+ *
+ * @return Size in bytes needed for a plexus_client_t with current config
+ */
+size_t plexus_client_size(void);
+
+/**
+ * Convenience macro to declare a correctly-sized static buffer.
+ *
+ * @example
+ *   PLEXUS_CLIENT_STATIC_BUF(my_buf);
+ *   plexus_client_t* client = plexus_init_static(
+ *       my_buf, sizeof(my_buf), "plx_xxx", "device-001");
+ */
+#define PLEXUS_CLIENT_STATIC_SIZE  (sizeof(plexus_client_t))
+
+/* Forward-declare struct so sizeof works in the macro above.
+ * The actual definition is in plexus_internal.h. Application code
+ * must not access struct members directly. */
 
 /**
  * Free a Plexus client and release resources
@@ -78,7 +135,8 @@ plexus_client_t* plexus_init(const char* api_key, const char* source_id);
  * metrics are sent. This function does NOT flush automatically — any
  * unsent metrics in the buffer will be discarded.
  *
- * @param client Client to free (safe to pass NULL)
+ * @param client Client to free (safe to pass NULL).
+ *               Must have been created with plexus_init(), NOT plexus_init_static().
  */
 void plexus_free(plexus_client_t* client);
 
@@ -190,16 +248,22 @@ plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metr
  *
  * @note On success, the metric buffer is cleared
  * @note On network error, metrics remain in buffer for retry
+ * @note Uses exponential backoff with jitter between retries
  */
 plexus_err_t plexus_flush(plexus_client_t* client);
 
 /**
- * Check if time-based auto-flush is needed and flush if so
+ * Call periodically from your main loop to handle time-based operations
  *
- * Call this periodically from your main loop to enable time-based flushing.
+ * This function:
+ * - Flushes queued metrics when the flush interval elapses
+ * - Polls for commands (if PLEXUS_ENABLE_COMMANDS is set)
+ *
+ * Returns PLEXUS_OK when idle (nothing to do). Only returns an error
+ * if a flush or command poll actually fails.
  *
  * @param client Plexus client
- * @return       PLEXUS_OK if no flush needed or flush succeeded
+ * @return       PLEXUS_OK on success or idle, error code on flush failure
  */
 plexus_err_t plexus_tick(plexus_client_t* client);
 
@@ -274,7 +338,7 @@ const char* plexus_strerror(plexus_err_t err);
 /**
  * Get SDK version string
  *
- * @return Version string (e.g., "0.1.0")
+ * @return Version string (e.g., "0.1.1")
  */
 const char* plexus_version(void);
 
@@ -282,11 +346,21 @@ const char* plexus_version(void);
 /* HAL interface (implemented per platform)                                  */
 /* ------------------------------------------------------------------------- */
 
+/**
+ * @param url        Target URL
+ * @param api_key    API key for x-api-key header
+ * @param user_agent User-Agent header value (e.g., "plexus-c-sdk/0.1.1")
+ * @param body       JSON request body
+ * @param body_len   Length of body in bytes
+ * @return           PLEXUS_OK on 2xx, error code otherwise
+ */
 plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
+                                   const char* user_agent,
                                    const char* body, size_t body_len);
 
 #if PLEXUS_ENABLE_COMMANDS
 plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
+                                  const char* user_agent,
                                   char* response_buf, size_t buf_size,
                                   size_t* response_len);
 #endif
@@ -294,7 +368,7 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
 uint64_t plexus_hal_get_time_ms(void);
 uint32_t plexus_hal_get_tick_ms(void);
 void plexus_hal_delay_ms(uint32_t ms);
-void plexus_hal_log(const char* fmt, ...);
+void plexus_hal_log(const char* fmt, ...) PLEXUS_PRINTF_FMT(1, 2);
 
 #if PLEXUS_ENABLE_PERSISTENT_BUFFER
 plexus_err_t plexus_hal_storage_write(const char* key, const void* data, size_t len);

@@ -21,42 +21,18 @@
 
 static const char* TAG = "plexus";
 
-/* HTTP response handling */
-typedef struct {
-    int status_code;
-    bool complete;
-} http_response_t;
-
-static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
-    http_response_t* resp = (http_response_t*)evt->user_data;
-
-    switch(evt->event_id) {
-        case HTTP_EVENT_ON_FINISH:
-            resp->complete = true;
-            break;
-        case HTTP_EVENT_ERROR:
-            ESP_LOGE(TAG, "HTTP error");
-            break;
-        default:
-            break;
-    }
-    return ESP_OK;
-}
-
 plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
+                                   const char* user_agent,
                                    const char* body, size_t body_len) {
     if (!url || !api_key || !body) {
         return PLEXUS_ERR_NULL_PTR;
     }
 
-    http_response_t response = { .status_code = 0, .complete = false };
-
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_POST,
         .timeout_ms = PLEXUS_HTTP_TIMEOUT_MS,
-        .event_handler = http_event_handler,
-        .user_data = &response,
+        .keep_alive_enable = true,
         .buffer_size = 512,
         .buffer_size_tx = 1024,
     };
@@ -70,6 +46,9 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
     /* Set headers */
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_header(client, "x-api-key", api_key);
+    if (user_agent) {
+        esp_http_client_set_header(client, "User-Agent", user_agent);
+    }
 
     /* Set POST data */
     esp_http_client_set_post_field(client, body, (int)body_len);
@@ -109,7 +88,6 @@ typedef struct {
     char* buf;
     size_t buf_size;
     size_t pos;
-    int status_code;
 } http_get_ctx_t;
 
 static esp_err_t http_get_event_handler(esp_http_client_event_t *evt) {
@@ -130,6 +108,7 @@ static esp_err_t http_get_event_handler(esp_http_client_event_t *evt) {
 }
 
 plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
+                                  const char* user_agent,
                                   char* response_buf, size_t buf_size,
                                   size_t* response_len) {
     if (!url || !api_key || !response_buf || !response_len) {
@@ -142,7 +121,6 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
         .buf = response_buf,
         .buf_size = buf_size,
         .pos = 0,
-        .status_code = 0,
     };
 
     esp_http_client_config_t config = {
@@ -151,6 +129,7 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
         .timeout_ms = PLEXUS_HTTP_TIMEOUT_MS,
         .event_handler = http_get_event_handler,
         .user_data = &ctx,
+        .keep_alive_enable = true,
         .buffer_size = 512,
         .buffer_size_tx = 256,
     };
@@ -161,6 +140,9 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
     }
 
     esp_http_client_set_header(client, "x-api-key", api_key);
+    if (user_agent) {
+        esp_http_client_set_header(client, "User-Agent", user_agent);
+    }
 
     esp_err_t err = esp_http_client_perform(client);
     plexus_err_t result;

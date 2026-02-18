@@ -93,7 +93,7 @@ void loop() {
      * This sends queued metrics when the flush interval elapses,
      * so you don't need to call flush() manually. */
     plexus_err_t err = plexus.tick();
-    if (err != PLEXUS_OK && err != PLEXUS_ERR_NO_DATA) {
+    if (err != PLEXUS_OK) {
         Serial.print("Tick error: ");
         Serial.println(plexus_strerror(err));
     }

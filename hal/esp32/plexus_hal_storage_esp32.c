@@ -95,15 +95,16 @@ plexus_err_t plexus_hal_storage_read(const char* key, void* data, size_t max_len
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
     if (err != ESP_OK) {
-        /* No namespace yet — treat as empty */
-        return PLEXUS_ERR_HAL;
+        /* No namespace yet — treat as empty (not an error) */
+        return PLEXUS_OK;
     }
 
     size_t required_size = 0;
     err = nvs_get_blob(handle, key, NULL, &required_size);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         nvs_close(handle);
-        return PLEXUS_ERR_HAL;  /* Key not found — no stored data */
+        /* Key not found is not an error — just means no stored data */
+        return PLEXUS_OK;
     }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS size query failed: %s", esp_err_to_name(err));

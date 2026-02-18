@@ -72,8 +72,10 @@ static void json_append_escaped(json_writer_t* w, const char* str) {
             case '\t': json_append(w, "\\t"); break;
             default:
                 if ((unsigned char)c < 0x20) {
-                    /* Control characters - skip or replace with space */
-                    json_append_char(w, ' ');
+                    /* Escape control characters as \u00XX */
+                    char esc[8];
+                    snprintf(esc, sizeof(esc), "\\u%04x", (unsigned char)c);
+                    json_append(w, esc);
                 } else {
                     json_append_char(w, c);
                 }
@@ -84,14 +86,18 @@ static void json_append_escaped(json_writer_t* w, const char* str) {
     json_append_char(w, '"');
 }
 
-/* Format double with reasonable precision */
+/**
+ * Format double with reasonable precision.
+ *
+ * Uses %g format which automatically picks the shorter of %f and %e notation,
+ * handles very small and very large values correctly, and strips trailing zeros.
+ */
 static void json_append_number(json_writer_t* w, double value) {
     if (w->error) return;
 
     char num_buf[32];
-    int len;
 
-    /* Handle special cases */
+    /* Handle special cases — JSON has no NaN/Infinity */
     if (value != value) {  /* NaN */
         json_append(w, "null");
         return;
@@ -101,21 +107,10 @@ static void json_append_number(json_writer_t* w, double value) {
         return;
     }
 
-    /* Format with up to 6 decimal places, removing trailing zeros */
-    len = snprintf(num_buf, sizeof(num_buf), "%.6f", value);
+    /* %g uses the shorter of %f/%e, strips trailing zeros, and handles
+     * very small values (1e-7) that %.6f would round to 0. */
+    int len = snprintf(num_buf, sizeof(num_buf), "%.10g", value);
     if (len > 0 && len < (int)sizeof(num_buf)) {
-        /* Remove trailing zeros after decimal point */
-        char* dot = strchr(num_buf, '.');
-        if (dot) {
-            char* end = num_buf + len - 1;
-            while (end > dot && *end == '0') {
-                *end-- = '\0';
-            }
-            /* Remove trailing decimal point */
-            if (end == dot) {
-                *end = '\0';
-            }
-        }
         json_append(w, num_buf);
     }
 }
@@ -124,7 +119,6 @@ static void json_append_uint64(json_writer_t* w, uint64_t value) {
     if (w->error) return;
 
     char num_buf[24];
-    /* Output raw milliseconds as integer */
     snprintf(num_buf, sizeof(num_buf), "%llu", (unsigned long long)value);
     json_append(w, num_buf);
 }
@@ -134,11 +128,12 @@ static void json_append_uint64(json_writer_t* w, uint64_t value) {
  *
  * Output format:
  * {
+ *   "sdk": "c/0.1.1",
  *   "points": [
  *     {
  *       "metric": "temperature",
  *       "value": 72.5,
- *       "timestamp": 1699900000.123,
+ *       "timestamp": 1699900000123,
  *       "source_id": "device-001",
  *       "tags": {"location": "sensor-1"}
  *     }
@@ -153,7 +148,7 @@ int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_s
     json_writer_t w;
     json_init(&w, buf, buf_size);
 
-    json_append(&w, "{\"points\":[");
+    json_append(&w, "{\"sdk\":\"c/" PLEXUS_VERSION_STR "\",\"points\":[");
 
     for (uint16_t i = 0; i < client->metric_count; i++) {
         const plexus_metric_t* m = &client->metrics[i];
@@ -267,9 +262,9 @@ static int json_extract_string(const char* json, size_t json_len,
 }
 
 /**
- * Minimal JSON number extractor
+ * Minimal JSON number extractor with overflow protection.
  * Finds "key":123 in a JSON string and returns the integer value.
- * Returns the value, or default_val if key not found.
+ * Returns the value, or default_val if key not found or overflow.
  */
 static int json_extract_int(const char* json, size_t json_len,
                              const char* key, int default_val) {
@@ -287,27 +282,25 @@ static int json_extract_int(const char* json, size_t json_len,
     /* Don't parse strings or objects */
     if (*num_start == '"' || *num_start == '{' || *num_start == '[') return default_val;
 
-    int val = 0;
+    long val = 0;
     int sign = 1;
     if (*num_start == '-') { sign = -1; num_start++; }
 
-    while (*num_start >= '0' && *num_start <= '9') {
+    int digits = 0;
+    while (*num_start >= '0' && *num_start <= '9' && digits < 10) {
         val = val * 10 + (*num_start - '0');
         num_start++;
+        digits++;
+        /* Overflow guard */
+        if (val > 2147483647L) return default_val;
     }
 
     (void)json_len;
-    return val * sign;
+    return (int)(val * sign);
 }
 
 /**
  * Parse a command polling response JSON
- *
- * Expected format:
- * {"commands":[{"id":"uuid","command":"shell cmd","timeout_seconds":300}]}
- * or: {"commands":[]}
- *
- * @return 0 on success (cmd populated or empty), -1 on parse error
  */
 int plexus_json_parse_command(const char* json, size_t json_len,
                                plexus_command_t* cmd) {
@@ -315,10 +308,9 @@ int plexus_json_parse_command(const char* json, size_t json_len,
 
     /* Check if commands array is empty */
     if (strstr(json, "\"commands\":[]") || strstr(json, "\"commands\": []")) {
-        return 0; /* No commands — cmd.id stays empty */
+        return 0;
     }
 
-    /* Extract fields from the first command object */
     json_extract_string(json, json_len, "id", cmd->id, sizeof(cmd->id));
     json_extract_string(json, json_len, "command", cmd->command, sizeof(cmd->command));
     cmd->timeout_seconds = json_extract_int(json, json_len, "timeout_seconds", 300);
@@ -328,11 +320,6 @@ int plexus_json_parse_command(const char* json, size_t json_len,
 
 /**
  * Build a command result JSON payload
- *
- * Output format:
- * {"status":"completed","exit_code":0,"output":"...","error":"..."}
- *
- * @return Length of JSON, or -1 on error
  */
 int plexus_json_build_result(char* buf, size_t buf_size,
                               const char* status, int exit_code,

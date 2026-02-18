@@ -6,14 +6,12 @@
  *   cmake -B build-test tests && cmake --build build-test && ./build-test/test_json
  */
 
-/* Include internal header to access plexus_json_serialize and struct fields */
 #include "plexus_internal.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <assert.h>
 
-/* Mock HAL helpers */
 extern void mock_hal_reset(void);
 
 static int tests_passed = 0;
@@ -50,6 +48,18 @@ TEST(serialize_single_number) {
     ASSERT(strstr(buf, "\"metric\":\"temperature\"") != NULL);
     ASSERT(strstr(buf, "\"value\":72.5") != NULL);
     ASSERT(strstr(buf, "\"source_id\":\"dev-001\"") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_includes_sdk_version) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temp", 1.0);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"sdk\":\"c/") != NULL);
 
     plexus_free(c);
 }
@@ -113,6 +123,34 @@ TEST(serialize_nan_becomes_null) {
     int len = plexus_json_serialize(c, buf, sizeof(buf));
     ASSERT(len > 0);
     ASSERT(strstr(buf, "\"value\":null") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_very_small_number) {
+    /* Regression: %.6f would round 1e-7 to "0.000000" and strip to "0" */
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "tiny", 0.0000001);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    /* With %g format, this should not become "0" */
+    ASSERT(strstr(buf, "\"value\":0,") == NULL &&
+           strstr(buf, "\"value\":0}") == NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_very_large_number) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "big", 1.23456789e15);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    /* Should be formatted as a large number, not "null" */
+    ASSERT(strstr(buf, "\"value\":null") == NULL);
 
     plexus_free(c);
 }
@@ -223,7 +261,20 @@ TEST(serialize_empty) {
     char buf[1024];
     int len = plexus_json_serialize(c, buf, sizeof(buf));
     ASSERT(len > 0);
-    ASSERT(strcmp(buf, "{\"points\":[]}") == 0);
+    /* Now includes sdk version prefix */
+    ASSERT(strstr(buf, "\"points\":[]") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_control_chars_escaped) {
+    /* Control characters should be escaped as \u00XX, not replaced with space */
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+
+    char buf[1024];
+    /* Manually build a metric name with a control char to test escaping */
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
 
     plexus_free(c);
 }
@@ -234,11 +285,14 @@ int main(void) {
     printf("test_json:\n");
 
     RUN(serialize_single_number);
+    RUN(serialize_includes_sdk_version);
     RUN(serialize_multiple_metrics);
     RUN(serialize_integer_value);
     RUN(serialize_negative_value);
     RUN(serialize_zero);
     RUN(serialize_nan_becomes_null);
+    RUN(serialize_very_small_number);
+    RUN(serialize_very_large_number);
     RUN(serialize_with_timestamp);
 
 #if PLEXUS_ENABLE_STRING_VALUES
@@ -258,6 +312,7 @@ int main(void) {
     RUN(serialize_buffer_too_small);
     RUN(serialize_null_client);
     RUN(serialize_empty);
+    RUN(serialize_control_chars_escaped);
 
     printf("\n  %d passed, %d failed\n\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;

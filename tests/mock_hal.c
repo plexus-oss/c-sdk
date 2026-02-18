@@ -19,8 +19,13 @@ static uint64_t s_time_ms = 1700000000000ULL; /* ~Nov 2023 in ms */
 static char s_last_post_url[256] = {0};
 static char s_last_post_body[PLEXUS_JSON_BUFFER_SIZE] = {0};
 static size_t s_last_post_body_len = 0;
+static char s_last_user_agent[128] = {0};
 static plexus_err_t s_next_post_result = PLEXUS_OK;
 static int s_post_call_count = 0;
+
+/* Track delay calls for backoff verification */
+static uint32_t s_delay_calls[16] = {0};
+static int s_delay_call_count = 0;
 
 /* ---- Test helpers (not part of HAL) ---- */
 
@@ -30,8 +35,11 @@ void mock_hal_reset(void) {
     s_last_post_url[0] = '\0';
     s_last_post_body[0] = '\0';
     s_last_post_body_len = 0;
+    s_last_user_agent[0] = '\0';
     s_next_post_result = PLEXUS_OK;
     s_post_call_count = 0;
+    s_delay_call_count = 0;
+    memset(s_delay_calls, 0, sizeof(s_delay_calls));
 }
 
 void mock_hal_set_tick(uint32_t tick_ms) {
@@ -58,15 +66,34 @@ int mock_hal_post_call_count(void) {
     return s_post_call_count;
 }
 
+const char* mock_hal_last_user_agent(void) {
+    return s_last_user_agent;
+}
+
+int mock_hal_delay_call_count(void) {
+    return s_delay_call_count;
+}
+
+uint32_t mock_hal_delay_call_ms(int index) {
+    if (index >= 0 && index < 16) {
+        return s_delay_calls[index];
+    }
+    return 0;
+}
+
 /* ---- HAL function implementations ---- */
 
 plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
+                                   const char* user_agent,
                                    const char* body, size_t body_len) {
     (void)api_key;
     s_post_call_count++;
 
     if (url) {
         strncpy(s_last_post_url, url, sizeof(s_last_post_url) - 1);
+    }
+    if (user_agent) {
+        strncpy(s_last_user_agent, user_agent, sizeof(s_last_user_agent) - 1);
     }
     if (body && body_len > 0 && body_len < sizeof(s_last_post_body)) {
         memcpy(s_last_post_body, body, body_len);
@@ -79,10 +106,12 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
 
 #if PLEXUS_ENABLE_COMMANDS
 plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
+                                  const char* user_agent,
                                   char* response_buf, size_t buf_size,
                                   size_t* response_len) {
     (void)url;
     (void)api_key;
+    (void)user_agent;
     if (response_buf && buf_size > 0) {
         const char* empty = "{\"commands\":[]}";
         size_t len = strlen(empty);
@@ -104,8 +133,13 @@ uint32_t plexus_hal_get_tick_ms(void) {
 }
 
 void plexus_hal_delay_ms(uint32_t ms) {
-    /* No-op in tests — don't actually wait */
-    (void)ms;
+    /* Record delay calls for backoff testing */
+    if (s_delay_call_count < 16) {
+        s_delay_calls[s_delay_call_count] = ms;
+    }
+    s_delay_call_count++;
+    /* Advance tick to simulate time passing */
+    s_tick_ms += ms;
 }
 
 void plexus_hal_log(const char* fmt, ...) {
@@ -130,7 +164,7 @@ plexus_err_t plexus_hal_storage_read(const char* key, void* data, size_t max_len
     (void)key;
     if (!s_storage_has_data) {
         if (out_len) *out_len = 0;
-        return PLEXUS_ERR_HAL;
+        return PLEXUS_OK;  /* Key not found is not an error */
     }
     size_t copy_len = s_storage_len < max_len ? s_storage_len : max_len;
     memcpy(data, s_storage_data, copy_len);

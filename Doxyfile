@@ -4,7 +4,7 @@
 # View:     open docs/html/index.html
 
 PROJECT_NAME           = "Plexus C SDK"
-PROJECT_NUMBER         = 0.1.0
+PROJECT_NUMBER         = 0.1.1
 PROJECT_BRIEF          = "Minimal footprint telemetry client for embedded devices"
 
 OUTPUT_DIRECTORY       = docs/

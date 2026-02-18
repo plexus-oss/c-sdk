@@ -10,8 +10,9 @@ Minimal footprint C library for sending telemetry from embedded devices (ESP32, 
 - Opaque client handle — internals are not exposed in the public API
 - Supports ESP32, STM32, and Arduino platforms
 - Configurable buffer sizes for memory-constrained devices
+- Static allocation option for no-malloc environments (MISRA C compliant)
 - Automatic batching with configurable flush thresholds
-- Retry logic with configurable delay between attempts
+- Retry with exponential backoff and jitter; automatic rate-limit cooldown
 - Support for numeric, string, and boolean values
 - Optional metric tags
 
@@ -101,10 +102,20 @@ Or copy the `c-sdk` directory to your project's `components/` folder.
 ### Initialization
 
 ```c
-// Create client with API key and source ID
+// Create client with API key and source ID (uses malloc)
 plexus_client_t* plexus_init(const char* api_key, const char* source_id);
 
-// Free client resources (call plexus_flush() first to send pending data)
+// Create client in a user-provided buffer (no malloc, MISRA C compliant)
+plexus_client_t* plexus_init_static(void* buf, size_t buf_size,
+                                     const char* api_key, const char* source_id);
+
+// Get exact client struct size at runtime (for static allocation)
+size_t plexus_client_size(void);
+
+// Compile-time constant for static buffer sizing
+// uint8_t buf[PLEXUS_CLIENT_STATIC_SIZE];
+
+// Free client resources (only for plexus_init; not needed for plexus_init_static)
 void plexus_free(plexus_client_t* client);
 
 // Set custom endpoint URL
@@ -118,6 +129,8 @@ plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count);
 ```
 
 These runtime setters allow changing flush behavior without reflashing, useful for OTA configuration updates.
+
+**Static allocation** is the recommended pattern for bare-metal / RTOS environments where `malloc` is unavailable or forbidden:
 
 ### Sending Metrics
 
@@ -174,6 +187,7 @@ typedef enum {
     PLEXUS_ERR_JSON,
     PLEXUS_ERR_NOT_INITIALIZED,
     PLEXUS_ERR_HAL,
+    PLEXUS_ERR_INVALID_ARG,
 } plexus_err_t;
 ```
 
@@ -189,6 +203,9 @@ Override defaults in `plexus_config.h` or via compiler flags:
 | `PLEXUS_JSON_BUFFER_SIZE` | 2048 | JSON serialization buffer |
 | `PLEXUS_HTTP_TIMEOUT_MS` | 10000 | HTTP request timeout |
 | `PLEXUS_MAX_RETRIES` | 3 | Retry count on failure |
+| `PLEXUS_RETRY_BASE_MS` | 500 | Base delay for exponential backoff |
+| `PLEXUS_RETRY_MAX_MS` | 8000 | Maximum backoff delay |
+| `PLEXUS_RATE_LIMIT_COOLDOWN_MS` | 30000 | Cooldown after 429 response |
 | `PLEXUS_AUTO_FLUSH_COUNT` | 16 | Auto-flush after N metrics |
 | `PLEXUS_ENABLE_TAGS` | 1 | Enable metric tags |
 | `PLEXUS_ENABLE_STRING_VALUES` | 1 | Enable string values |
@@ -268,11 +285,11 @@ Multiple clients in separate tasks is safe — each client has its own buffer an
 
 | Scenario | Behavior | Error Code |
 |----------|----------|------------|
-| **WiFi drops** | Metrics stay in RAM buffer. Flush retries up to `PLEXUS_MAX_RETRIES` times. If persistent buffer is enabled, data is written to flash on final retry failure. | `PLEXUS_ERR_NETWORK` |
+| **WiFi drops** | Metrics stay in RAM buffer. Flush retries up to `PLEXUS_MAX_RETRIES` times with exponential backoff and jitter. If persistent buffer is enabled, data is written to flash on final retry failure. | `PLEXUS_ERR_NETWORK` |
 | **Buffer full** | `plexus_send_*` returns immediately. Caller should flush or drop metrics. Auto-flush helps prevent this. | `PLEXUS_ERR_BUFFER_FULL` |
 | **API down / server errors** | Retries up to `PLEXUS_MAX_RETRIES` times. Data stays in buffer on failure. With persistent buffer, survives reboot. | `PLEXUS_ERR_SERVER` |
 | **Auth token expired** | Returns immediately (no retry). Caller must update API key and retry. | `PLEXUS_ERR_AUTH` |
-| **Rate limited** | Returns immediately (no retry). Caller should back off before retrying. | `PLEXUS_ERR_RATE_LIMIT` |
+| **Rate limited** | Enters automatic cooldown (`PLEXUS_RATE_LIMIT_COOLDOWN_MS`). Subsequent flushes are suppressed until cooldown expires. | `PLEXUS_ERR_RATE_LIMIT` |
 | **Reboot during send** | Without persistent buffer, unsent data is lost. With `PLEXUS_ENABLE_PERSISTENT_BUFFER=1`, the last failed batch is written to flash and retried on the next `plexus_flush()` call. | — |
 
 ## TLS/HTTPS Support
@@ -310,7 +327,7 @@ If you're evaluating options for getting telemetry off an embedded device, here'
 
 **vs. Raw MQTT** — MQTT gives you a transport pipe, not an observability stack. You still need a broker, a subscriber service, a time-series database, and a visualization layer. Plexus is one HTTP call from your device to a managed dashboard.
 
-**vs. Custom HTTP** — Rolling your own POST works until you need retry logic, exponential backoff, buffer management, JSON serialization, and persistent storage across reboots. Plexus handles all of that in ~2KB of RAM.
+**vs. Custom HTTP** — Rolling your own POST works until you need retry logic, exponential backoff, buffer management, JSON serialization, and persistent storage across reboots. Plexus handles all of that in ~2KB of RAM (minimal config) with zero dependencies.
 
 **vs. ThingsBoard SDK** — ThingsBoard's C SDK pulls in MQTT client libraries (~50KB+ RAM), requires a persistent broker connection, and assumes you're running their full platform. Plexus is stateless HTTP — no broker, no long-lived connections.
 

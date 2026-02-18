@@ -35,13 +35,13 @@
 extern "C" {
 
 plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
+                                   const char* user_agent,
                                    const char* body, size_t body_len) {
     if (!url || !api_key || !body) {
         return PLEXUS_ERR_NULL_PTR;
     }
 
 #if defined(ESP32) || defined(ESP8266)
-    /* ESP32/ESP8266 with HTTPClient */
     HTTPClient http;
     WiFiClientSecure client;
 
@@ -55,13 +55,15 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
 
     http.addHeader("Content-Type", "application/json");
     http.addHeader("x-api-key", api_key);
+    if (user_agent) {
+        http.addHeader("User-Agent", user_agent);
+    }
     http.setTimeout(PLEXUS_HTTP_TIMEOUT_MS);
 
     int httpCode = http.POST((uint8_t*)body, body_len);
 
     plexus_err_t result;
     if (httpCode < 0) {
-        /* Connection failed */
         result = PLEXUS_ERR_NETWORK;
     } else if (httpCode >= 200 && httpCode < 300) {
         result = PLEXUS_OK;
@@ -79,16 +81,12 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
     return result;
 
 #elif defined(USE_ARDUINO_HTTP_CLIENT)
-    /* Generic Arduino with ArduinoHttpClient */
-    /* Parse URL to get host and path */
-    /* This is a simplified implementation */
-
-    /* TODO: Implement URL parsing and HTTP request */
+    (void)user_agent;
     (void)body_len;
     return PLEXUS_ERR_HAL;
 
 #else
-    /* No HTTP library available */
+    (void)user_agent;
     (void)body_len;
     return PLEXUS_ERR_HAL;
 #endif
@@ -97,6 +95,7 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
 #if PLEXUS_ENABLE_COMMANDS
 
 plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
+                                  const char* user_agent,
                                   char* response_buf, size_t buf_size,
                                   size_t* response_len) {
     if (!url || !api_key || !response_buf || !response_len) {
@@ -115,6 +114,9 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
     }
 
     http.addHeader("x-api-key", api_key);
+    if (user_agent) {
+        http.addHeader("User-Agent", user_agent);
+    }
     http.setTimeout(PLEXUS_HTTP_TIMEOUT_MS);
 
     int httpCode = http.GET();
@@ -143,6 +145,7 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
     http.end();
     return result;
 #else
+    (void)user_agent;
     (void)buf_size;
     return PLEXUS_ERR_HAL;
 #endif
@@ -152,12 +155,10 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
 
 uint64_t plexus_hal_get_time_ms(void) {
 #if defined(ESP32) || defined(ESP8266)
-    /* ESP devices have NTP support */
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (uint64_t)(tv.tv_sec) * 1000ULL + (uint64_t)(tv.tv_usec / 1000);
 #else
-    /* No RTC - return 0 to use server timestamp */
     return 0;
 #endif
 }

@@ -132,17 +132,14 @@ static bool wifi_init_sta(void) {
 /* ========================================================================= */
 
 static float read_temperature(void) {
-    /* Simulate temperature reading (20-30°C with some variation) */
     return 25.0f + ((float)(esp_random() % 1000) / 100.0f) - 5.0f;
 }
 
 static float read_humidity(void) {
-    /* Simulate humidity reading (40-60%) */
     return 50.0f + ((float)(esp_random() % 2000) / 100.0f) - 10.0f;
 }
 
 static float read_pressure(void) {
-    /* Simulate pressure reading (1000-1020 hPa) */
     return 1010.0f + ((float)(esp_random() % 2000) / 100.0f) - 10.0f;
 }
 
@@ -159,7 +156,8 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_LOGI(TAG, "Plexus C SDK Example v%s", plexus_version());
+    ESP_LOGI(TAG, "Plexus C SDK Example v%s (client size: %u bytes)",
+             plexus_version(), (unsigned)plexus_client_size());
 
     /* Connect to WiFi */
     if (!wifi_init_sta()) {
@@ -207,42 +205,24 @@ void app_main(void) {
                  temp, humidity, pressure);
 
         /* Queue metrics */
-        plexus_err_t err;
+        plexus_send_number(plexus, "temperature", temp);
+        plexus_send_number(plexus, "humidity", humidity);
+        plexus_send_number(plexus, "pressure", pressure);
 
-        err = plexus_send_number(plexus, "temperature", temp);
-        if (err != PLEXUS_OK) {
-            ESP_LOGW(TAG, "Failed to queue temperature: %s", plexus_strerror(err));
-        }
-
-        err = plexus_send_number(plexus, "humidity", humidity);
-        if (err != PLEXUS_OK) {
-            ESP_LOGW(TAG, "Failed to queue humidity: %s", plexus_strerror(err));
-        }
-
-        err = plexus_send_number(plexus, "pressure", pressure);
-        if (err != PLEXUS_OK) {
-            ESP_LOGW(TAG, "Failed to queue pressure: %s", plexus_strerror(err));
-        }
-
-        /* Send with tags example */
 #if PLEXUS_ENABLE_TAGS
         const char* tag_keys[] = {"location", "unit"};
         const char* tag_values[] = {"room-1", "celsius"};
         plexus_send_number_tagged(plexus, "room_temp", temp, tag_keys, tag_values, 2);
 #endif
 
-        /* Let plexus_tick() handle time-based auto-flush.
-         * This flushes automatically when the interval elapses,
-         * so you don't need to call plexus_flush() manually. */
-        err = plexus_tick(plexus);
-        if (err != PLEXUS_OK && err != PLEXUS_ERR_NO_DATA) {
+        /* Let plexus_tick() handle time-based auto-flush */
+        plexus_err_t err = plexus_tick(plexus);
+        if (err != PLEXUS_OK) {
             ESP_LOGE(TAG, "Tick error: %s", plexus_strerror(err));
         }
 
-        /* Wait before next reading */
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    /* Cleanup (never reached in this example) */
     plexus_free(plexus);
 }

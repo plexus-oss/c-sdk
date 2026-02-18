@@ -19,12 +19,14 @@
 #include <string.h>
 #include <stdio.h>
 
+#define PLEXUS_USER_AGENT "plexus-c-sdk/" PLEXUS_VERSION_STR
+
 plexus_err_t plexus_register_command_handler(plexus_client_t* client,
                                               plexus_command_handler_t handler) {
     if (!client) return PLEXUS_ERR_NULL_PTR;
     if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
 
-    client->command_handler = (plexus_command_handler_fn)handler;
+    client->command_handler = handler;
     return PLEXUS_OK;
 }
 
@@ -33,7 +35,9 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client) {
     if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
     if (!client->command_handler) return PLEXUS_OK;
 
-    /* Build poll URL */
+    /* Build poll URL.
+     * source_id is validated at init time to contain only [a-zA-Z0-9._-]
+     * so it is safe to embed directly in a URL query parameter. */
     char poll_url[512];
     {
         const char* api_pos = strstr(client->endpoint, "/api/ingest");
@@ -64,7 +68,7 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client) {
     size_t response_len = 0;
 
     plexus_err_t err = plexus_hal_http_get(
-        poll_url, client->api_key,
+        poll_url, client->api_key, PLEXUS_USER_AGENT,
         client->json_buffer, PLEXUS_JSON_BUFFER_SIZE, &response_len
     );
 
@@ -101,8 +105,7 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client) {
     int exit_code = -1;
     memset(output, 0, sizeof(output));
 
-    plexus_command_handler_t handler = (plexus_command_handler_t)client->command_handler;
-    plexus_err_t exec_err = handler(&cmd, output, &exit_code);
+    plexus_err_t exec_err = client->command_handler(&cmd, output, &exit_code);
 
     const char* status;
     const char* error_str = NULL;
@@ -150,7 +153,7 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client) {
     }
 
     /* POST result */
-    err = plexus_hal_http_post(result_url, client->api_key,
+    err = plexus_hal_http_post(result_url, client->api_key, PLEXUS_USER_AGENT,
                                 client->json_buffer, (size_t)result_len);
 
 #if PLEXUS_DEBUG
