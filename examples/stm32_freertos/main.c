@@ -1,14 +1,14 @@
 /**
  * @file main.c
- * @brief STM32F4 + FreeRTOS + LwIP telemetry example for Plexus C SDK
+ * @brief STM32F4 telemetry example for Plexus C SDK
  *
  * This example targets STM32F446RE (Nucleo-F446RE) with:
- * - FreeRTOS for task scheduling
- * - LwIP for TCP/IP networking
+ * - Optional FreeRTOS for task scheduling
+ * - LwIP for TCP/IP networking (when available)
  * - UART2 for debug output
  *
  * Prerequisites:
- *   1. CubeMX-generated project with FreeRTOS + LwIP enabled
+ *   1. CubeMX-generated project with LwIP enabled (and optionally FreeRTOS)
  *   2. Ethernet/WiFi module connected and configured
  *   3. Set PLEXUS_API_KEY and PLEXUS_SOURCE_ID below
  *
@@ -23,9 +23,17 @@
 #include <string.h>
 
 #include "stm32f4xx_hal.h"
-#include "cmsis_os.h"
-#include "lwip/init.h"
-#include "lwip/netif.h"
+
+/* FreeRTOS is optional — detect at compile time */
+#if __has_include("cmsis_os.h")
+    #include "cmsis_os.h"
+    #define EXAMPLE_HAS_FREERTOS 1
+#elif __has_include("cmsis_os2.h")
+    #include "cmsis_os2.h"
+    #define EXAMPLE_HAS_FREERTOS 1
+#else
+    #define EXAMPLE_HAS_FREERTOS 0
+#endif
 
 #include "plexus.h"
 
@@ -82,14 +90,6 @@ int _write(int fd, char* ptr, int len) {
 }
 
 /* ========================================================================= */
-/* Network initialization stub                                               */
-/* ========================================================================= */
-
-static void network_init_stub(void) {
-    printf("Network init: replace this stub with CubeMX LwIP init\r\n");
-}
-
-/* ========================================================================= */
 /* Simulated sensor readings                                                 */
 /* ========================================================================= */
 
@@ -112,29 +112,22 @@ static int read_alarm_state(void) {
 }
 
 /* ========================================================================= */
-/* Telemetry task                                                            */
+/* Telemetry loop                                                            */
 /* ========================================================================= */
 
 /* Static allocation — no malloc needed.
  * PLEXUS_CLIENT_STATIC_BUF ensures correct size and alignment. */
 PLEXUS_CLIENT_STATIC_BUF(plexus_buf);
 
-static void telemetry_task(void const* argument) {
-    (void)argument;
-
+static void telemetry_loop(void) {
     printf("Plexus SDK v%s (client size: %u bytes)\r\n",
            plexus_version(), (unsigned)plexus_client_size());
-
-    /* Wait for network to be ready */
-    network_init_stub();
-    osDelay(2000);
 
     /* Initialize Plexus client using static allocation (no malloc) */
     plexus_client_t* client = plexus_init_static(
         &plexus_buf, sizeof(plexus_buf), PLEXUS_API_KEY, PLEXUS_SOURCE_ID);
     if (!client) {
         printf("ERROR: Failed to initialize Plexus client\r\n");
-        osThreadTerminate(NULL);
         return;
     }
 
@@ -178,11 +171,12 @@ static void telemetry_task(void const* argument) {
             printf("Flush error: %s\r\n", plexus_strerror(err));
         }
 
+#if EXAMPLE_HAS_FREERTOS
         osDelay(1000);
+#else
+        HAL_Delay(1000);
+#endif
     }
-
-    /* Don't call plexus_free() — client was statically allocated */
-    osThreadTerminate(NULL);
 }
 
 /* ========================================================================= */
@@ -196,14 +190,17 @@ int main(void) {
     /* SystemClock_Config(); */
 
     uart_init();
-    printf("\r\n=== Plexus STM32 FreeRTOS Example ===\r\n");
+    printf("\r\n=== Plexus STM32 Example ===\r\n");
 
-    /* Create telemetry task */
-    osThreadDef(telemetryTask, telemetry_task, osPriorityNormal, 0, 2048);
+#if EXAMPLE_HAS_FREERTOS
+    /* FreeRTOS: run telemetry in a dedicated task */
+    osThreadDef(telemetryTask, (os_pthread)telemetry_loop, osPriorityNormal, 0, 2048);
     osThreadCreate(osThread(telemetryTask), NULL);
-
-    /* Start FreeRTOS scheduler */
     osKernelStart();
+#else
+    /* Bare-metal: run telemetry directly from main */
+    telemetry_loop();
+#endif
 
     for (;;) {}
 }

@@ -17,11 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Compile-time configuration validation via `_Static_assert` (C11) with C99/GCC fallback — catches invalid `PLEXUS_MAX_METRICS`, `PLEXUS_JSON_BUFFER_SIZE`, `PLEXUS_MAX_RETRIES`, and other misconfigured values at build time
 - `plexus_internal_is_url_safe()` shared validator in `plexus_internal.h` — used by both source ID and command ID validation
+- `PlexusClient` C++ class moved to `plexus.h` — now visible to Arduino sketches and any C++ project that includes the header (was previously hidden inside `plexus_hal_arduino.cpp`)
 - Documentation: persistent buffer single-batch limitation noted in README
 
 ### Changed
 
 - `is_valid_source_id()` renamed to `plexus_internal_is_url_safe()` and made non-static for cross-module reuse
+- STM32 example: compiles with or without FreeRTOS (uses `__has_include` detection, falls back to bare-metal `HAL_Delay`)
+- STM32 CI: verifies example + SDK core compile against STM32 headers (HAL excluded — requires LwIP which PlatformIO doesn't ship)
 - Test suite: 62 tests (43 core + 19 JSON)
 
 ## [0.2.0] - 2026-02-18
