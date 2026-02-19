@@ -352,6 +352,99 @@ cleanup:
     return result;
 }
 
+#if PLEXUS_ENABLE_AUTO_REGISTER
+
+plexus_err_t plexus_hal_http_post_response(
+    const char* url, const char* api_key, const char* user_agent,
+    const char* body, size_t body_len,
+    char* response_buf, size_t response_buf_size, size_t* response_len) {
+    if (!url || !api_key || !body || !response_buf || !response_len) {
+        return PLEXUS_ERR_NULL_PTR;
+    }
+
+    *response_len = 0;
+
+    parsed_url_t parsed;
+    if (parse_url(url, &parsed) != 0) {
+        return PLEXUS_ERR_HAL;
+    }
+
+    if (parsed.is_https) {
+        plexus_hal_log("ERROR: HTTPS not supported on STM32 without mbedTLS");
+        return PLEXUS_ERR_HAL;
+    }
+
+    int sock = connect_to_host(parsed.host, parsed.port);
+    if (sock < 0) {
+        return PLEXUS_ERR_NETWORK;
+    }
+
+    plexus_err_t result = PLEXUS_ERR_NETWORK;
+
+    char header_buf[PLEXUS_STM32_HEADER_BUF_SIZE];
+    int header_len = snprintf(header_buf, sizeof(header_buf),
+        "POST %s HTTP/1.1\r\n"
+        "Host: %s\r\n"
+        "Content-Type: application/json\r\n"
+        "x-api-key: %s\r\n"
+        "User-Agent: %s\r\n"
+        "Content-Length: %u\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        parsed.path, parsed.host, api_key,
+        user_agent ? user_agent : "plexus-c-sdk",
+        (unsigned int)body_len);
+
+    if (header_len < 0 || header_len >= (int)sizeof(header_buf)) {
+        result = PLEXUS_ERR_HAL;
+        goto cleanup;
+    }
+
+    if (send_all(sock, header_buf, (size_t)header_len) != 0) goto cleanup;
+    if (send_all(sock, body, body_len) != 0) goto cleanup;
+
+    /* Read response with body (same approach as http_get) */
+    {
+        char recv_chunk[256];
+        int total_read = 0;
+        int buf_limit = (int)response_buf_size - 1;
+
+        while (total_read < buf_limit) {
+            int n = lwip_recv(sock, recv_chunk, sizeof(recv_chunk), 0);
+            if (n <= 0) break;
+            int to_copy = n;
+            if (total_read + to_copy > buf_limit) to_copy = buf_limit - total_read;
+            memcpy(response_buf + total_read, recv_chunk, to_copy);
+            total_read += to_copy;
+        }
+        response_buf[total_read] = '\0';
+
+        int status_code = -1;
+        const char* status_start = strchr(response_buf, ' ');
+        if (status_start) {
+            status_code = atoi(status_start + 1);
+        }
+
+        /* Extract body after \r\n\r\n */
+        const char* resp_body = strstr(response_buf, "\r\n\r\n");
+        if (resp_body) {
+            resp_body += 4;
+            size_t resp_body_len = total_read - (resp_body - response_buf);
+            memmove(response_buf, resp_body, resp_body_len);
+            response_buf[resp_body_len] = '\0';
+            *response_len = resp_body_len;
+        }
+
+        result = map_http_status(status_code);
+    }
+
+cleanup:
+    lwip_close(sock);
+    return result;
+}
+
+#endif /* PLEXUS_ENABLE_AUTO_REGISTER */
+
 #if PLEXUS_ENABLE_COMMANDS
 
 plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,

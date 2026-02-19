@@ -1,0 +1,41 @@
+# Plexus Generic Firmware — ESP-IDF configuration defaults
+#
+# These are applied on first build. Override in sdkconfig.defaults.{target}
+# or via menuconfig (idf.py menuconfig).
+
+# ── Partition table ──────────────────────────────────────────────────────────
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# ── NVS encryption ──────────────────────────────────────────────────────────
+CONFIG_NVS_ENCRYPTION=y
+
+# ── WiFi ─────────────────────────────────────────────────────────────────────
+CONFIG_ESP_WIFI_SSID=""
+CONFIG_ESP_WIFI_PASSWORD=""
+
+# ── TLS / mbedTLS ────────────────────────────────────────────────────────────
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# ── FreeRTOS ─────────────────────────────────────────────────────────────────
+CONFIG_FREERTOS_HZ=1000
+
+# ── UART ─────────────────────────────────────────────────────────────────────
+# Keep UART0 available for serial provisioning (not used for debug in release)
+CONFIG_ESP_CONSOLE_UART_NUM=0
+
+# ── Flash encryption (documented — enable for production) ────────────────────
+# CONFIG_SECURE_FLASH_ENC_ENABLED is NOT set (enable manually for production)
+
+# ── Secure boot (documented — enable for production) ─────────────────────────
+# CONFIG_SECURE_BOOT is NOT set (enable manually for production — irreversible)
+
+# ── Watchdog ─────────────────────────────────────────────────────────────────
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+
+# ── Log level ────────────────────────────────────────────────────────────────
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# ── SNTP ─────────────────────────────────────────────────────────────────────
+CONFIG_LWIP_SNTP_MAX_SERVERS=2

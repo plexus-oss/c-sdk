@@ -26,6 +26,12 @@ bool plexus_internal_is_url_safe(const char* s);
 
 int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_size);
 
+/* General-purpose JSON parse utilities (used by commands + auto-registration) */
+int plexus_json_extract_string(const char* json, size_t json_len,
+                                const char* key, char* out, size_t out_size);
+int plexus_json_extract_int(const char* json, size_t json_len,
+                             const char* key, int default_val);
+
 #if PLEXUS_ENABLE_COMMANDS
 int plexus_json_parse_command(const char* json, size_t json_len,
                                plexus_command_t* cmd);
@@ -37,5 +43,16 @@ int plexus_json_build_result(char* buf, size_t buf_size,
 #if PLEXUS_ENABLE_HEARTBEAT
 int plexus_json_build_heartbeat(const plexus_client_t* client, char* buf, size_t buf_size);
 #endif
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+int plexus_json_build_register(char* buf, size_t buf_size,
+                                const char* source_id,
+                                const char* hostname,
+                                const char* platform_name);
+#endif
+
+/* Typed command schema serialization is implemented in plexus_typed_commands.c
+ * and exposed via the public API (plexus_typed_commands_schema).
+ * No additional internal declarations needed. */
 
 #endif /* PLEXUS_INTERNAL_H */

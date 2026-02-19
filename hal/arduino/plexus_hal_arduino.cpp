@@ -92,6 +92,105 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
 #endif
 }
 
+#if PLEXUS_ENABLE_AUTO_REGISTER
+
+plexus_err_t plexus_hal_http_post_response(
+    const char* url, const char* api_key, const char* user_agent,
+    const char* body, size_t body_len,
+    char* response_buf, size_t response_buf_size, size_t* response_len) {
+    if (!url || !api_key || !body || !response_buf || !response_len) {
+        return PLEXUS_ERR_NULL_PTR;
+    }
+
+    *response_len = 0;
+
+#if defined(ESP32) || defined(ESP8266)
+    HTTPClient http;
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    if (!http.begin(client, url)) {
+        return PLEXUS_ERR_NETWORK;
+    }
+
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("x-api-key", api_key);
+    if (user_agent) {
+        http.addHeader("User-Agent", user_agent);
+    }
+    http.setTimeout(PLEXUS_HTTP_TIMEOUT_MS);
+
+    int httpCode = http.POST((uint8_t*)body, body_len);
+
+    plexus_err_t result;
+    if (httpCode < 0) {
+        result = PLEXUS_ERR_NETWORK;
+    } else if (httpCode >= 200 && httpCode < 300) {
+        String payload = http.getString();
+        size_t len = payload.length();
+        if (len >= response_buf_size) len = response_buf_size - 1;
+        memcpy(response_buf, payload.c_str(), len);
+        response_buf[len] = '\0';
+        *response_len = len;
+        result = PLEXUS_OK;
+    } else if (httpCode == 401) {
+        result = PLEXUS_ERR_AUTH;
+    } else if (httpCode == 429) {
+        result = PLEXUS_ERR_RATE_LIMIT;
+    } else if (httpCode >= 500) {
+        result = PLEXUS_ERR_SERVER;
+    } else {
+        result = PLEXUS_ERR_NETWORK;
+    }
+
+    http.end();
+    return result;
+#else
+    (void)user_agent;
+    (void)body_len;
+    (void)response_buf_size;
+    return PLEXUS_ERR_HAL;
+#endif
+}
+
+#endif /* PLEXUS_ENABLE_AUTO_REGISTER */
+
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+
+#include <Wire.h>
+
+plexus_err_t plexus_hal_i2c_init(uint8_t bus_num) {
+    (void)bus_num;
+    Wire.begin();
+    return PLEXUS_OK;
+}
+
+bool plexus_hal_i2c_probe(uint8_t addr) {
+    Wire.beginTransmission(addr);
+    return (Wire.endTransmission() == 0);
+}
+
+plexus_err_t plexus_hal_i2c_read_reg(uint8_t addr, uint8_t reg, uint8_t* out) {
+    if (!out) return PLEXUS_ERR_NULL_PTR;
+
+    Wire.beginTransmission(addr);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) return PLEXUS_ERR_I2C;
+
+    if (Wire.requestFrom(addr, (uint8_t)1) != 1) return PLEXUS_ERR_I2C;
+    *out = Wire.read();
+    return PLEXUS_OK;
+}
+
+plexus_err_t plexus_hal_i2c_write_reg(uint8_t addr, uint8_t reg, uint8_t val) {
+    Wire.beginTransmission(addr);
+    Wire.write(reg);
+    Wire.write(val);
+    return (Wire.endTransmission() == 0) ? PLEXUS_OK : PLEXUS_ERR_I2C;
+}
+
+#endif /* PLEXUS_ENABLE_SENSOR_DISCOVERY */
+
 #if PLEXUS_ENABLE_COMMANDS
 
 plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,

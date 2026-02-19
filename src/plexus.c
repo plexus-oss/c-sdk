@@ -119,6 +119,8 @@ static const char* s_error_messages[] = {
     "HAL error",
     "Invalid argument",
     "Transport error",
+    "Device not registered",
+    "I2C error",
 };
 
 const char* plexus_strerror(plexus_err_t err) {
@@ -225,6 +227,20 @@ static plexus_client_t* client_init_common(plexus_client_t* client,
     client->transport = PLEXUS_TRANSPORT_HTTP;
     client->broker_uri[0] = '\0';
     client->mqtt_topic[0] = '\0';
+#endif
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+    client->registered = false;
+    client->hostname[0] = '\0';
+    client->platform_name[0] = '\0';
+#endif
+
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+    client->detected_sensor_count = 0;
+#endif
+
+#if PLEXUS_ENABLE_TYPED_COMMANDS
+    client->typed_command_count = 0;
 #endif
 
 #if PLEXUS_DEBUG

@@ -119,6 +119,7 @@ jobs:
             src/plexus.c \
             src/plexus_json.c \
             src/plexus_commands.c \
+            hal/stm32/plexus_hal_stm32.c \
             --board=nucleo_f446re \
             --project-option="framework=stm32cube" \
-            --project-option="build_flags=-DSTM32F4 -DSTM32_HAL -Iinclude -Isrc"
+            --project-option="build_flags=-DSTM32F4 -DSTM32_HAL -I$PWD/include -I$PWD/src"

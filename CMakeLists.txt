@@ -21,9 +21,13 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
             "src/plexus.c"
             "src/plexus_json.c"
             "src/plexus_commands.c"
+            "src/plexus_register.c"
+            "src/plexus_sensors.c"
+            "src/plexus_typed_commands.c"
             "hal/esp32/plexus_hal_esp32.c"
             "hal/esp32/plexus_hal_storage_esp32.c"
             "hal/esp32/plexus_hal_mqtt_esp32.c"
+            "hal/esp32/plexus_hal_i2c_esp32.c"
         INCLUDE_DIRS
             "include"
             "src"
@@ -32,12 +36,13 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
             esp_timer
             nvs_flash
             mqtt
+            driver
     )
     return()
 endif()
 
 # Standalone CMake build
-project(plexus-sdk VERSION 0.3.0 LANGUAGES C CXX)
+project(plexus-sdk VERSION 0.2.1 LANGUAGES C CXX)
 
 # Options
 option(PLEXUS_BUILD_EXAMPLES "Build example applications" OFF)
@@ -52,14 +57,19 @@ set(PLEXUS_SOURCES
     src/plexus.c
     src/plexus_json.c
     src/plexus_commands.c
+    src/plexus_register.c
+    src/plexus_sensors.c
+    src/plexus_typed_commands.c
 )
 
 # Platform-specific HAL
 if(PLEXUS_PLATFORM STREQUAL "esp32")
     list(APPEND PLEXUS_SOURCES hal/esp32/plexus_hal_esp32.c)
     list(APPEND PLEXUS_SOURCES hal/esp32/plexus_hal_storage_esp32.c)
+    list(APPEND PLEXUS_SOURCES hal/esp32/plexus_hal_i2c_esp32.c)
 elseif(PLEXUS_PLATFORM STREQUAL "stm32")
     list(APPEND PLEXUS_SOURCES hal/stm32/plexus_hal_stm32.c)
+    list(APPEND PLEXUS_SOURCES hal/stm32/plexus_hal_i2c_stm32.c)
 elseif(PLEXUS_PLATFORM STREQUAL "arduino")
     list(APPEND PLEXUS_SOURCES hal/arduino/plexus_hal_arduino.cpp)
 else()

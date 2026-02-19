@@ -1,0 +1,22 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "provisioning.c"
+        "wifi.c"
+        "system_metrics.c"
+        "adc.c"
+        "gps.c"
+        "canbus.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        plexus-sdk
+        nvs_flash
+        esp_wifi
+        esp_netif
+        esp_event
+        driver
+        esp_adc
+        esp_http_client
+        mqtt
+)

@@ -364,3 +364,155 @@ plexus_err_t plexus_hal_mqtt_receive(char* buf, size_t buf_size, size_t* msg_len
 #endif /* PLEXUS_ENABLE_COMMANDS */
 
 #endif /* PLEXUS_ENABLE_MQTT */
+
+/* ========================================================================= */
+/* Auto-registration mock                                                    */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+
+static char s_register_response[PLEXUS_JSON_BUFFER_SIZE] = {0};
+static size_t s_register_response_len = 0;
+static plexus_err_t s_register_next_result = PLEXUS_OK;
+static char s_last_post_response_url[256] = {0};
+static char s_last_post_response_body[PLEXUS_JSON_BUFFER_SIZE] = {0};
+
+void mock_hal_set_register_response(const char* json, plexus_err_t result) {
+    if (json) {
+        size_t len = strlen(json);
+        if (len < sizeof(s_register_response)) {
+            memcpy(s_register_response, json, len + 1);
+            s_register_response_len = len;
+        }
+    } else {
+        s_register_response[0] = '\0';
+        s_register_response_len = 0;
+    }
+    s_register_next_result = result;
+}
+
+const char* mock_hal_last_post_response_url(void) {
+    return s_last_post_response_url;
+}
+
+const char* mock_hal_last_post_response_body(void) {
+    return s_last_post_response_body;
+}
+
+void mock_hal_register_reset(void) {
+    s_register_response[0] = '\0';
+    s_register_response_len = 0;
+    s_register_next_result = PLEXUS_OK;
+    s_last_post_response_url[0] = '\0';
+    s_last_post_response_body[0] = '\0';
+}
+
+plexus_err_t plexus_hal_http_post_response(
+    const char* url, const char* api_key, const char* user_agent,
+    const char* body, size_t body_len,
+    char* response_buf, size_t response_buf_size, size_t* response_len) {
+    (void)api_key;
+    (void)user_agent;
+
+    if (url) {
+        strncpy(s_last_post_response_url, url, sizeof(s_last_post_response_url) - 1);
+    }
+    if (body && body_len > 0 && body_len < sizeof(s_last_post_response_body)) {
+        memcpy(s_last_post_response_body, body, body_len);
+        s_last_post_response_body[body_len] = '\0';
+    }
+
+    s_post_call_count++;
+
+    if (s_register_next_result != PLEXUS_OK) {
+        *response_len = 0;
+        return s_register_next_result;
+    }
+
+    if (s_register_response_len > 0 && s_register_response_len < response_buf_size) {
+        memcpy(response_buf, s_register_response, s_register_response_len);
+        response_buf[s_register_response_len] = '\0';
+        *response_len = s_register_response_len;
+    } else {
+        *response_len = 0;
+    }
+
+    return PLEXUS_OK;
+}
+
+#endif /* PLEXUS_ENABLE_AUTO_REGISTER */
+
+/* ========================================================================= */
+/* I2C sensor discovery mock                                                 */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+
+#define MOCK_I2C_MAX_DEVICES 16
+
+typedef struct {
+    uint8_t addr;
+    uint8_t regs[256];
+    bool present;
+} mock_i2c_device_t;
+
+static mock_i2c_device_t s_i2c_devices[MOCK_I2C_MAX_DEVICES];
+static int s_i2c_device_count = 0;
+
+void mock_hal_i2c_reset(void) {
+    memset(s_i2c_devices, 0, sizeof(s_i2c_devices));
+    s_i2c_device_count = 0;
+}
+
+void mock_hal_i2c_add_device(uint8_t addr) {
+    if (s_i2c_device_count < MOCK_I2C_MAX_DEVICES) {
+        s_i2c_devices[s_i2c_device_count].addr = addr;
+        s_i2c_devices[s_i2c_device_count].present = true;
+        memset(s_i2c_devices[s_i2c_device_count].regs, 0, 256);
+        s_i2c_device_count++;
+    }
+}
+
+void mock_hal_i2c_set_reg(uint8_t addr, uint8_t reg, uint8_t val) {
+    for (int i = 0; i < s_i2c_device_count; i++) {
+        if (s_i2c_devices[i].addr == addr && s_i2c_devices[i].present) {
+            s_i2c_devices[i].regs[reg] = val;
+            return;
+        }
+    }
+}
+
+static mock_i2c_device_t* find_i2c_device(uint8_t addr) {
+    for (int i = 0; i < s_i2c_device_count; i++) {
+        if (s_i2c_devices[i].addr == addr && s_i2c_devices[i].present) {
+            return &s_i2c_devices[i];
+        }
+    }
+    return NULL;
+}
+
+plexus_err_t plexus_hal_i2c_init(uint8_t bus_num) {
+    (void)bus_num;
+    return PLEXUS_OK;
+}
+
+bool plexus_hal_i2c_probe(uint8_t addr) {
+    return (find_i2c_device(addr) != NULL);
+}
+
+plexus_err_t plexus_hal_i2c_read_reg(uint8_t addr, uint8_t reg, uint8_t* out) {
+    if (!out) return PLEXUS_ERR_NULL_PTR;
+    mock_i2c_device_t* dev = find_i2c_device(addr);
+    if (!dev) return PLEXUS_ERR_I2C;
+    *out = dev->regs[reg];
+    return PLEXUS_OK;
+}
+
+plexus_err_t plexus_hal_i2c_write_reg(uint8_t addr, uint8_t reg, uint8_t val) {
+    mock_i2c_device_t* dev = find_i2c_device(addr);
+    if (!dev) return PLEXUS_ERR_I2C;
+    dev->regs[reg] = val;
+    return PLEXUS_OK;
+}
+
+#endif /* PLEXUS_ENABLE_SENSOR_DISCOVERY */

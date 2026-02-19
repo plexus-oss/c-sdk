@@ -81,9 +81,7 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
     return result;
 }
 
-#if PLEXUS_ENABLE_COMMANDS
-
-/* HTTP GET response handler - collects body into user buffer */
+/* HTTP response handler - collects body into user buffer */
 typedef struct {
     char* buf;
     size_t buf_size;
@@ -120,6 +118,77 @@ static esp_err_t http_get_event_handler(esp_http_client_event_t *evt) {
     }
     return ESP_OK;
 }
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+
+plexus_err_t plexus_hal_http_post_response(
+    const char* url, const char* api_key, const char* user_agent,
+    const char* body, size_t body_len,
+    char* response_buf, size_t response_buf_size, size_t* response_len) {
+    if (!url || !api_key || !body || !response_buf || !response_len) {
+        return PLEXUS_ERR_NULL_PTR;
+    }
+
+    *response_len = 0;
+
+    http_get_ctx_t ctx = {
+        .buf = response_buf,
+        .buf_size = response_buf_size,
+        .pos = 0,
+        .truncated = false,
+    };
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = PLEXUS_HTTP_TIMEOUT_MS,
+        .event_handler = http_get_event_handler,
+        .user_data = &ctx,
+        .keep_alive_enable = true,
+        .buffer_size = 512,
+        .buffer_size_tx = 1024,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        return PLEXUS_ERR_HAL;
+    }
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "x-api-key", api_key);
+    if (user_agent) {
+        esp_http_client_set_header(client, "User-Agent", user_agent);
+    }
+    esp_http_client_set_post_field(client, body, (int)body_len);
+
+    esp_err_t err = esp_http_client_perform(client);
+    plexus_err_t result;
+
+    if (err != ESP_OK) {
+        result = PLEXUS_ERR_NETWORK;
+    } else {
+        int status = esp_http_client_get_status_code(client);
+        if (status >= 200 && status < 300) {
+            result = PLEXUS_OK;
+            *response_len = ctx.pos;
+        } else if (status == 401) {
+            result = PLEXUS_ERR_AUTH;
+        } else if (status == 429) {
+            result = PLEXUS_ERR_RATE_LIMIT;
+        } else if (status >= 500) {
+            result = PLEXUS_ERR_SERVER;
+        } else {
+            result = PLEXUS_ERR_NETWORK;
+        }
+    }
+
+    esp_http_client_cleanup(client);
+    return result;
+}
+
+#endif /* PLEXUS_ENABLE_AUTO_REGISTER */
+
+#if PLEXUS_ENABLE_COMMANDS
 
 plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
                                   const char* user_agent,

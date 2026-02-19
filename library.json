@@ -26,17 +26,26 @@
   "homepage": "https://plexus.company",
   "frameworks": [
     "arduino",
-    "espidf"
+    "espidf",
+    "stm32cube"
   ],
   "platforms": [
     "espressif32",
-    "espressif8266"
+    "espressif8266",
+    "ststm32"
   ],
   "headers": "plexus.h",
   "build": {
+    "srcDir": ".",
     "srcFilter": [
       "+<src/>",
-      "+<hal/arduino/>"
+      "+<hal/arduino/>",
+      "-<tests/>",
+      "-<examples/>",
+      "-<build-*/>",
+      "-<hal/esp32/>",
+      "-<hal/stm32/>",
+      "-<hal/template/>"
     ],
     "includeDir": "include",
     "flags": [

@@ -30,7 +30,7 @@ extern "C" {
 /* Version                                                                   */
 /* ------------------------------------------------------------------------- */
 
-#define PLEXUS_SDK_VERSION "0.3.0"
+#define PLEXUS_SDK_VERSION "0.2.1"
 
 /* ------------------------------------------------------------------------- */
 /* Compiler attributes                                                       */
@@ -64,6 +64,8 @@ typedef enum {
     PLEXUS_ERR_HAL,             /* HAL layer error */
     PLEXUS_ERR_INVALID_ARG,     /* Invalid argument (bad characters, etc.) */
     PLEXUS_ERR_TRANSPORT,       /* Transport-specific error (MQTT disconnect, etc.) */
+    PLEXUS_ERR_NOT_REGISTERED,  /* Device not yet registered */
+    PLEXUS_ERR_I2C,             /* I2C communication error */
     PLEXUS_ERR__COUNT           /* Sentinel — must be last */
 } plexus_err_t;
 
@@ -127,6 +129,62 @@ typedef plexus_err_t (*plexus_command_handler_t)(
 
 #endif /* PLEXUS_ENABLE_COMMANDS */
 
+/* Typed command types (when enabled) */
+#if PLEXUS_ENABLE_TYPED_COMMANDS
+
+typedef enum {
+    PLEXUS_PARAM_FLOAT,
+    PLEXUS_PARAM_INT,
+    PLEXUS_PARAM_STRING,
+    PLEXUS_PARAM_BOOL,
+    PLEXUS_PARAM_ENUM,
+} plexus_param_type_t;
+
+typedef struct {
+    char name[PLEXUS_MAX_PARAM_NAME_LEN];
+    plexus_param_type_t type;
+    char description[PLEXUS_MAX_COMMAND_DESC_LEN];
+    char unit[16];
+    double min_val;     /* For float/int */
+    double max_val;     /* For float/int */
+    double step;        /* For UI sliders */
+    double default_val;
+    bool has_default;
+    bool required;
+    const char* choices[PLEXUS_MAX_PARAM_CHOICES]; /* For enum, NULL-terminated */
+    uint8_t choice_count;
+} plexus_param_desc_t;
+
+/* Parameter value passed to handler */
+typedef struct {
+    plexus_param_type_t type;
+    union {
+        double number;
+        int integer;
+        bool boolean;
+        char string[PLEXUS_MAX_STRING_VALUE_LEN];
+    } data;
+} plexus_param_value_t;
+
+/* Handler receives parsed, validated params */
+typedef plexus_err_t (*plexus_typed_cmd_handler_t)(
+    const char* command_name,
+    const plexus_param_value_t* params,
+    uint8_t param_count,
+    char* result_json,
+    size_t result_json_size
+);
+
+typedef struct {
+    char name[PLEXUS_MAX_PARAM_NAME_LEN];
+    char description[PLEXUS_MAX_COMMAND_DESC_LEN];
+    plexus_param_desc_t params[PLEXUS_MAX_COMMAND_PARAMS];
+    uint8_t param_count;
+    plexus_typed_cmd_handler_t handler;
+} plexus_typed_command_t;
+
+#endif /* PLEXUS_ENABLE_TYPED_COMMANDS */
+
 /* Connection status types (when enabled) */
 #if PLEXUS_ENABLE_STATUS_CALLBACK
 
@@ -140,6 +198,31 @@ typedef enum {
 typedef void (*plexus_status_callback_t)(plexus_conn_status_t status, void* user_data);
 
 #endif /* PLEXUS_ENABLE_STATUS_CALLBACK */
+
+/* Sensor discovery types (when enabled) */
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+
+typedef bool (*plexus_sensor_probe_fn)(uint8_t addr);
+typedef plexus_err_t (*plexus_sensor_read_fn)(uint8_t addr, float* values, uint8_t count);
+
+typedef struct {
+    const char* name;               /* "BME280" */
+    const char* description;        /* "Environmental sensor" */
+    const char* const* metrics;     /* {"temperature","humidity","pressure"} */
+    uint8_t metric_count;
+    uint8_t i2c_addrs[4];          /* {0x76, 0x77, 0, 0} — 0-terminated */
+    float default_sample_rate_hz;
+    plexus_sensor_probe_fn probe;   /* NULL = ACK-only detection */
+    plexus_sensor_read_fn read;     /* NULL = no built-in driver */
+} plexus_sensor_descriptor_t;
+
+typedef struct {
+    const plexus_sensor_descriptor_t* descriptor;
+    uint8_t addr;
+    bool active;
+} plexus_detected_sensor_t;
+
+#endif /* PLEXUS_ENABLE_SENSOR_DISCOVERY */
 
 /* Transport type (when MQTT enabled) */
 #if PLEXUS_ENABLE_MQTT
@@ -205,6 +288,22 @@ struct plexus_client {
     plexus_transport_t transport;
     char broker_uri[PLEXUS_MAX_ENDPOINT_LEN];
     char mqtt_topic[PLEXUS_MAX_ENDPOINT_LEN];
+#endif
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+    bool registered;
+    char hostname[PLEXUS_MAX_METADATA_LEN];
+    char platform_name[PLEXUS_MAX_METADATA_LEN];
+#endif
+
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+    plexus_detected_sensor_t detected_sensors[PLEXUS_MAX_DETECTED_SENSORS];
+    uint8_t detected_sensor_count;
+#endif
+
+#if PLEXUS_ENABLE_TYPED_COMMANDS
+    plexus_typed_command_t typed_commands[PLEXUS_MAX_TYPED_COMMANDS];
+    uint8_t typed_command_count;
 #endif
 };
 
@@ -460,6 +559,23 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client);
 #endif /* PLEXUS_ENABLE_COMMANDS */
 
 /* ------------------------------------------------------------------------- */
+/* Typed commands (opt-in via PLEXUS_ENABLE_TYPED_COMMANDS)                  */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_TYPED_COMMANDS
+
+/** Register a typed command with parameter schema for auto-generated UI. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_register_typed_command(plexus_client_t* client,
+                                            const plexus_typed_command_t* command);
+
+/** Serialize all registered typed command schemas to JSON. */
+int plexus_typed_commands_schema(const plexus_client_t* client,
+                                 char* buf, size_t buf_size);
+
+#endif /* PLEXUS_ENABLE_TYPED_COMMANDS */
+
+/* ------------------------------------------------------------------------- */
 /* Connection status (opt-in via PLEXUS_ENABLE_STATUS_CALLBACK)              */
 /* ------------------------------------------------------------------------- */
 
@@ -505,6 +621,57 @@ plexus_err_t plexus_heartbeat(plexus_client_t* client);
 /* MQTT transport (opt-in via PLEXUS_ENABLE_MQTT)                            */
 /* ------------------------------------------------------------------------- */
 
+/* ------------------------------------------------------------------------- */
+/* Auto-registration (opt-in via PLEXUS_ENABLE_AUTO_REGISTER)                */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+
+/** Set device identity for registration. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_set_device_identity(plexus_client_t* client,
+                                         const char* hostname,
+                                         const char* platform_name);
+
+/** Register device with server. No-op if already registered. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_register_device(plexus_client_t* client);
+
+/** Check if device is registered (has a source_id from server). */
+bool plexus_is_registered(const plexus_client_t* client);
+
+#endif /* PLEXUS_ENABLE_AUTO_REGISTER */
+
+/* ------------------------------------------------------------------------- */
+/* I2C Sensor Discovery (opt-in via PLEXUS_ENABLE_SENSOR_DISCOVERY)          */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+
+/** Register a custom sensor descriptor for discovery. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_sensor_register(const plexus_sensor_descriptor_t* descriptor);
+
+/** Scan I2C bus for known sensors, populate detected_sensors. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_scan_sensors(plexus_client_t* client);
+
+/** Read all detected sensors and queue metrics via plexus_send(). */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_sensor_read_all(plexus_client_t* client);
+
+/** Get count of detected sensors. */
+uint8_t plexus_detected_sensor_count(const plexus_client_t* client);
+
+/** Get a detected sensor by index (NULL if out of range). */
+const plexus_detected_sensor_t* plexus_detected_sensor(const plexus_client_t* client, uint8_t index);
+
+#endif /* PLEXUS_ENABLE_SENSOR_DISCOVERY */
+
+/* ------------------------------------------------------------------------- */
+/* MQTT transport (opt-in via PLEXUS_ENABLE_MQTT)                            */
+/* ------------------------------------------------------------------------- */
+
 #if PLEXUS_ENABLE_MQTT
 
 /** Set MQTT as the transport and configure broker URI. */
@@ -539,6 +706,20 @@ plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
                                   const char* user_agent,
                                   char* response_buf, size_t buf_size,
                                   size_t* response_len);
+#endif
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+plexus_err_t plexus_hal_http_post_response(
+    const char* url, const char* api_key, const char* user_agent,
+    const char* body, size_t body_len,
+    char* response_buf, size_t response_buf_size, size_t* response_len);
+#endif
+
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+plexus_err_t plexus_hal_i2c_init(uint8_t bus_num);
+bool plexus_hal_i2c_probe(uint8_t addr);
+plexus_err_t plexus_hal_i2c_read_reg(uint8_t addr, uint8_t reg, uint8_t* out);
+plexus_err_t plexus_hal_i2c_write_reg(uint8_t addr, uint8_t reg, uint8_t val);
 #endif
 
 uint64_t plexus_hal_get_time_ms(void);
@@ -671,6 +852,31 @@ public:
 
     plexus_transport_t getTransport() const {
         return plexus_get_transport(_client);
+    }
+#endif
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+    plexus_err_t setDeviceIdentity(const char* hostname, const char* platformName) {
+        return plexus_set_device_identity(_client, hostname, platformName);
+    }
+
+    plexus_err_t registerDevice() { return plexus_register_device(_client); }
+    bool isRegistered() const { return plexus_is_registered(_client); }
+#endif
+
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+    plexus_err_t scanSensors() { return plexus_scan_sensors(_client); }
+    plexus_err_t sensorReadAll() { return plexus_sensor_read_all(_client); }
+    uint8_t detectedSensorCount() const { return plexus_detected_sensor_count(_client); }
+#endif
+
+#if PLEXUS_ENABLE_TYPED_COMMANDS
+    plexus_err_t registerTypedCommand(const plexus_typed_command_t* cmd) {
+        return plexus_register_typed_command(_client, cmd);
+    }
+
+    int typedCommandsSchema(char* buf, size_t bufSize) const {
+        return plexus_typed_commands_schema(_client, buf, bufSize);
     }
 #endif
 

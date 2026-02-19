@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-19
+
+### Breaking
+
+- Per-sensor compile flags now default to OFF. Enable specific sensors with
+  `-DPLEXUS_SENSOR_BME280=1` etc. The dashboard wizard generates these automatically.
+- Removed `@plexus/configure` CLI tool. Use the dashboard wizard instead.
+
+### Added
+
+- Per-sensor compile guards (`PLEXUS_SENSOR_BME280`, `PLEXUS_SENSOR_MPU6050`, etc.)
+  strip unused drivers at compile time, saving flash.
+
 ## [0.2.1] - 2026-02-18
 
 ### Fixed
@@ -135,6 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow: host tests + PlatformIO cross-compilation for ESP32, ESP8266, STM32
 - Examples: ESP32 ESP-IDF, Arduino basic, STM32 FreeRTOS
 
+[0.3.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.3.0
 [0.2.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.2.1
 [0.2.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.2.0
 [0.1.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.1.1

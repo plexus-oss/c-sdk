@@ -80,6 +80,12 @@ void telemetry_task(void const* arg) {
 
 Data appears in real time at [app.plexus.company](https://app.plexus.company).
 
+## Setup
+
+Go to [app.plexus.company](https://app.plexus.company) → **Add Device** → **Embedded**.
+The wizard generates a `plexus_config.h` and starter `main.c` tuned for your
+platform, memory budget, and selected sensors.
+
 ## Install
 
 ### PlatformIO
@@ -185,7 +191,20 @@ Override via compiler flags (`-DPLEXUS_MAX_METRICS=8`) or before including `plex
 | `PLEXUS_ENABLE_STRING_VALUES` | 1 | String value support |
 | `PLEXUS_ENABLE_BOOL_VALUES` | 1 | Boolean value support |
 | `PLEXUS_ENABLE_PERSISTENT_BUFFER` | 0 | Flash-backed buffer for unsent data |
-| `PLEXUS_ENABLE_COMMANDS` | 0 | Remote command execution |
+| `PLEXUS_ENABLE_COMMANDS` | 0 | Remote shell command execution |
+| `PLEXUS_ENABLE_TYPED_COMMANDS` | 0 | Typed commands with parameter schemas |
+| `PLEXUS_ENABLE_HEARTBEAT` | 0 | Device heartbeat with metric registry |
+| `PLEXUS_ENABLE_AUTO_REGISTER` | 0 | Auto-register device on first connect |
+| `PLEXUS_ENABLE_SENSOR_DISCOVERY` | 0 | I2C sensor auto-detection |
+| `PLEXUS_SENSOR_BME280` | 0 | Compile BME280 driver |
+| `PLEXUS_SENSOR_MPU6050` | 0 | Compile MPU6050 driver |
+| `PLEXUS_SENSOR_INA219` | 0 | Compile INA219 driver |
+| `PLEXUS_SENSOR_ADS1115` | 0 | Compile ADS1115 driver |
+| `PLEXUS_SENSOR_SHT3X` | 0 | Compile SHT3x driver |
+| `PLEXUS_SENSOR_BH1750` | 0 | Compile BH1750 driver |
+| `PLEXUS_SENSOR_VL53L0X` | 0 | Compile VL53L0X driver |
+| `PLEXUS_SENSOR_QMC5883L` | 0 | Compile QMC5883L driver |
+| `PLEXUS_SENSOR_HMC5883L` | 0 | Compile HMC5883L driver |
 | `PLEXUS_DEBUG` | 0 | Debug logging |
 
 ### Minimal config (~1.5KB RAM)
@@ -197,6 +216,78 @@ Override via compiler flags (`-DPLEXUS_MAX_METRICS=8`) or before including `plex
 -DPLEXUS_ENABLE_STRING_VALUES=0
 -DPLEXUS_ENABLE_BOOL_VALUES=0
 ```
+
+## Typed Commands
+
+Declare structured commands with typed parameters. The dashboard auto-generates UI controls — sliders, dropdowns, toggles — from the schema. Enable with `-DPLEXUS_ENABLE_TYPED_COMMANDS=1`.
+
+```c
+#include "plexus.h"
+
+// Command handler
+plexus_err_t set_speed_handler(
+    plexus_client_t* client,
+    const plexus_param_value_t* params,
+    int param_count,
+    void* user_data)
+{
+    float rpm = params[0].f;
+    float ramp = params[1].f;
+    motor_set_speed(rpm, ramp);
+    return PLEXUS_OK;
+}
+
+void app_main(void) {
+    plexus_client_t* px = plexus_init("plx_key", "motor-001");
+
+    // Define parameters
+    plexus_param_desc_t params[2] = {
+        { .name = "rpm",       .type = PLEXUS_PARAM_FLOAT,
+          .min = 0, .max = 10000, .has_min = true, .has_max = true },
+        { .name = "ramp_time", .type = PLEXUS_PARAM_FLOAT,
+          .min = 0.1, .max = 10.0, .has_min = true, .has_max = true,
+          .has_default = true, .default_value = { .f = 1.0 } },
+    };
+
+    // Register the command
+    plexus_register_typed_command(px,
+        "set_speed", "Set motor speed",
+        params, 2,
+        set_speed_handler, NULL);
+
+    for (;;) {
+        plexus_tick(px);  // polls for commands + auto-flushes
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+```
+
+This works the same way in the Python agent — see the [Python agent README](../agent/README.md#commands--remote-control) for the equivalent `@px.command` decorator API.
+
+See `examples/typed_commands/` for a complete example.
+
+## Sensor Discovery
+
+Auto-detect I2C sensors at runtime. Enable with `-DPLEXUS_ENABLE_SENSOR_DISCOVERY=1` and the specific sensors you need:
+
+```
+-DPLEXUS_ENABLE_SENSOR_DISCOVERY=1
+-DPLEXUS_SENSOR_BME280=1
+-DPLEXUS_SENSOR_MPU6050=1
+```
+
+Only enabled sensor drivers are compiled into the binary, saving flash. The dashboard wizard generates these flags automatically based on your sensor selection.
+
+```c
+plexus_scan_sensors(px);
+printf("Found %d sensors\n", plexus_detected_sensor_count(px));
+
+// In your main loop:
+plexus_sensor_read_all(px);   // reads all detected sensors and queues telemetry
+plexus_tick(px);               // flushes to Plexus
+```
+
+See `examples/esp32_autodiscovery/` for a complete example with auto-registration and heartbeat.
 
 ## Memory
 

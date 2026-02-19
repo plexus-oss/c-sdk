@@ -220,16 +220,15 @@ int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_s
 }
 
 /* ========================================================================= */
-/* Command JSON parsing and result building (for PLEXUS_ENABLE_COMMANDS)     */
+/* General-purpose JSON parse utilities                                      */
+/* Used by commands, auto-registration, and any feature needing JSON parsing */
 /* ========================================================================= */
-
-#if PLEXUS_ENABLE_COMMANDS
 
 /**
  * Minimal JSON string extractor.
  * Finds "key":"value" and copies the value. Returns 0 on success.
  */
-static int json_extract_string(const char* json, size_t json_len,
+int plexus_json_extract_string(const char* json, size_t json_len,
                                 const char* key, char* out, size_t out_size) {
     /* Build search pattern: "key":" */
     char pattern[80];
@@ -280,7 +279,7 @@ static int json_extract_string(const char* json, size_t json_len,
  * Minimal JSON number extractor with overflow protection.
  * Finds "key":123 and returns the integer value, or default_val on error.
  */
-static int json_extract_int(const char* json, size_t json_len,
+int plexus_json_extract_int(const char* json, size_t json_len,
                              const char* key, int default_val) {
     char pattern[80];
     int plen = snprintf(pattern, sizeof(pattern), "\"%s\":", key);
@@ -320,6 +319,12 @@ static int json_extract_int(const char* json, size_t json_len,
     return (int)((int32_t)val * sign);
 }
 
+/* ========================================================================= */
+/* Command JSON parsing and result building (for PLEXUS_ENABLE_COMMANDS)     */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_COMMANDS
+
 /**
  * Parse a command polling response JSON.
  */
@@ -332,9 +337,9 @@ int plexus_json_parse_command(const char* json, size_t json_len,
         return 0;
     }
 
-    json_extract_string(json, json_len, "id", cmd->id, sizeof(cmd->id));
-    json_extract_string(json, json_len, "command", cmd->command, sizeof(cmd->command));
-    cmd->timeout_seconds = json_extract_int(json, json_len, "timeout_seconds", 300);
+    plexus_json_extract_string(json, json_len, "id", cmd->id, sizeof(cmd->id));
+    plexus_json_extract_string(json, json_len, "command", cmd->command, sizeof(cmd->command));
+    cmd->timeout_seconds = plexus_json_extract_int(json, json_len, "timeout_seconds", 300);
 
     return 0;
 }
@@ -433,6 +438,39 @@ int plexus_json_build_heartbeat(const plexus_client_t* client, char* buf, size_t
     }
     json_append_char(&w, ']');
 
+#if PLEXUS_ENABLE_SENSOR_DISCOVERY
+    /* Append sensors array when sensor discovery is also enabled */
+    if (client->detected_sensor_count > 0) {
+        json_append(&w, ",\"sensors\":[");
+        for (uint8_t s = 0; s < client->detected_sensor_count; s++) {
+            const plexus_detected_sensor_t* ds = &client->detected_sensors[s];
+            if (!ds->descriptor) continue;
+
+            if (s > 0) json_append_char(&w, ',');
+            json_append(&w, "{\"name\":");
+            json_append_escaped(&w, ds->descriptor->name);
+
+            if (ds->descriptor->description) {
+                json_append(&w, ",\"description\":");
+                json_append_escaped(&w, ds->descriptor->description);
+            }
+
+            json_append(&w, ",\"metrics\":[");
+            for (uint8_t m = 0; m < ds->descriptor->metric_count; m++) {
+                if (m > 0) json_append_char(&w, ',');
+                json_append_escaped(&w, ds->descriptor->metrics[m]);
+            }
+            json_append_char(&w, ']');
+
+            json_append(&w, ",\"sample_rate\":");
+            json_append_number(&w, (double)ds->descriptor->default_sample_rate_hz);
+
+            json_append_char(&w, '}');
+        }
+        json_append_char(&w, ']');
+    }
+#endif /* PLEXUS_ENABLE_SENSOR_DISCOVERY */
+
     json_append_char(&w, '}');
 
     if (w.error) return -1;
@@ -440,3 +478,39 @@ int plexus_json_build_heartbeat(const plexus_client_t* client, char* buf, size_t
 }
 
 #endif /* PLEXUS_ENABLE_HEARTBEAT */
+
+/* ========================================================================= */
+/* Registration JSON builder (for PLEXUS_ENABLE_AUTO_REGISTER)               */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+
+int plexus_json_build_register(char* buf, size_t buf_size,
+                                const char* source_id,
+                                const char* hostname,
+                                const char* platform_name) {
+    if (!buf || buf_size == 0 || !source_id) return -1;
+
+    json_writer_t w;
+    json_init(&w, buf, buf_size);
+
+    json_append(&w, "{\"name\":");
+    json_append_escaped(&w, source_id);
+
+    if (hostname && hostname[0] != '\0') {
+        json_append(&w, ",\"hostname\":");
+        json_append_escaped(&w, hostname);
+    }
+
+    if (platform_name && platform_name[0] != '\0') {
+        json_append(&w, ",\"platform\":");
+        json_append_escaped(&w, platform_name);
+    }
+
+    json_append_char(&w, '}');
+
+    if (w.error) return -1;
+    return (int)w.pos;
+}
+
+#endif /* PLEXUS_ENABLE_AUTO_REGISTER */

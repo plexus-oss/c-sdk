@@ -127,6 +127,31 @@
 #define PLEXUS_MAX_COMMAND_RESULT_LEN 256 /* Max command result/output length */
 #endif
 
+/* Typed command support (compile-time opt-in) */
+#ifndef PLEXUS_ENABLE_TYPED_COMMANDS
+#define PLEXUS_ENABLE_TYPED_COMMANDS 0
+#endif
+
+#ifndef PLEXUS_MAX_TYPED_COMMANDS
+#define PLEXUS_MAX_TYPED_COMMANDS 8
+#endif
+
+#ifndef PLEXUS_MAX_COMMAND_PARAMS
+#define PLEXUS_MAX_COMMAND_PARAMS 4
+#endif
+
+#ifndef PLEXUS_MAX_PARAM_NAME_LEN
+#define PLEXUS_MAX_PARAM_NAME_LEN 32
+#endif
+
+#ifndef PLEXUS_MAX_PARAM_CHOICES
+#define PLEXUS_MAX_PARAM_CHOICES 8
+#endif
+
+#ifndef PLEXUS_MAX_COMMAND_DESC_LEN
+#define PLEXUS_MAX_COMMAND_DESC_LEN 64
+#endif
+
 /* Persistent buffer (flash storage for unsent data) */
 #ifndef PLEXUS_ENABLE_PERSISTENT_BUFFER
 #define PLEXUS_ENABLE_PERSISTENT_BUFFER 0  /* Enable flash-backed buffer on flush failure */
@@ -182,6 +207,65 @@
 
 #ifndef PLEXUS_MQTT_CMD_TOPIC_PREFIX
 #define PLEXUS_MQTT_CMD_TOPIC_PREFIX "plexus/commands"
+#endif
+
+/* Auto-registration (compile-time opt-in) */
+#ifndef PLEXUS_ENABLE_AUTO_REGISTER
+#define PLEXUS_ENABLE_AUTO_REGISTER 0
+#endif
+
+/* I2C sensor discovery (compile-time opt-in) */
+#ifndef PLEXUS_ENABLE_SENSOR_DISCOVERY
+#define PLEXUS_ENABLE_SENSOR_DISCOVERY 0
+#endif
+
+/* Per-sensor compile flags (default: all OFF — enable what you need) */
+#ifndef PLEXUS_SENSOR_BME280
+#define PLEXUS_SENSOR_BME280    0
+#endif
+#ifndef PLEXUS_SENSOR_MPU6050
+#define PLEXUS_SENSOR_MPU6050   0
+#endif
+#ifndef PLEXUS_SENSOR_INA219
+#define PLEXUS_SENSOR_INA219    0
+#endif
+#ifndef PLEXUS_SENSOR_ADS1115
+#define PLEXUS_SENSOR_ADS1115   0
+#endif
+#ifndef PLEXUS_SENSOR_SHT3X
+#define PLEXUS_SENSOR_SHT3X     0
+#endif
+#ifndef PLEXUS_SENSOR_BH1750
+#define PLEXUS_SENSOR_BH1750    0
+#endif
+#ifndef PLEXUS_SENSOR_VL53L0X
+#define PLEXUS_SENSOR_VL53L0X   0
+#endif
+#ifndef PLEXUS_SENSOR_QMC5883L
+#define PLEXUS_SENSOR_QMC5883L  0
+#endif
+#ifndef PLEXUS_SENSOR_HMC5883L
+#define PLEXUS_SENSOR_HMC5883L  0
+#endif
+
+#ifndef PLEXUS_MAX_DETECTED_SENSORS
+#define PLEXUS_MAX_DETECTED_SENSORS 16
+#endif
+
+#ifndef PLEXUS_MAX_SENSOR_METRICS
+#define PLEXUS_MAX_SENSOR_METRICS 8
+#endif
+
+#ifndef PLEXUS_MAX_CUSTOM_SENSORS
+#define PLEXUS_MAX_CUSTOM_SENSORS 4
+#endif
+
+#ifndef PLEXUS_I2C_SCAN_START
+#define PLEXUS_I2C_SCAN_START 0x03
+#endif
+
+#ifndef PLEXUS_I2C_SCAN_END
+#define PLEXUS_I2C_SCAN_END 0x78
 #endif
 
 /* Debug settings */
