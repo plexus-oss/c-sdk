@@ -252,6 +252,92 @@ plexus_err_t plexus_hal_storage_clear(const char* key) {
 #endif /* PLEXUS_ENABLE_PERSISTENT_BUFFER */
 
 /* ========================================================================= */
+/* OPTIONAL: Thread safety (only if PLEXUS_ENABLE_THREAD_SAFE=1)             */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+
+/**
+ * Create a recursive mutex.
+ * Must be recursive because plexus_send() → auto_flush() → plexus_flush()
+ * can nest lock acquisitions.
+ *
+ * @return Opaque mutex handle, or NULL on failure
+ */
+void* plexus_hal_mutex_create(void) {
+    /* TODO: Create a recursive mutex for your platform */
+    return (void*)1; /* Non-NULL stub */
+}
+
+void plexus_hal_mutex_lock(void* mutex) {
+    /* TODO: Acquire the mutex (block until available) */
+    (void)mutex;
+}
+
+void plexus_hal_mutex_unlock(void* mutex) {
+    /* TODO: Release the mutex */
+    (void)mutex;
+}
+
+void plexus_hal_mutex_destroy(void* mutex) {
+    /* TODO: Free mutex resources */
+    (void)mutex;
+}
+
+#endif /* PLEXUS_ENABLE_THREAD_SAFE */
+
+/* ========================================================================= */
+/* OPTIONAL: MQTT transport (only if PLEXUS_ENABLE_MQTT=1)                   */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_MQTT
+
+plexus_err_t plexus_hal_mqtt_connect(const char* broker_uri, const char* api_key,
+                                      const char* source_id) {
+    /* TODO: Connect to MQTT broker */
+    (void)broker_uri;
+    (void)api_key;
+    (void)source_id;
+    return PLEXUS_ERR_HAL;
+}
+
+plexus_err_t plexus_hal_mqtt_publish(const char* topic, const char* payload,
+                                      size_t payload_len, int qos) {
+    /* TODO: Publish message to topic */
+    (void)topic;
+    (void)payload;
+    (void)payload_len;
+    (void)qos;
+    return PLEXUS_ERR_HAL;
+}
+
+bool plexus_hal_mqtt_is_connected(void) {
+    /* TODO: Return true if MQTT connection is active */
+    return false;
+}
+
+void plexus_hal_mqtt_disconnect(void) {
+    /* TODO: Disconnect from MQTT broker */
+}
+
+#if PLEXUS_ENABLE_COMMANDS
+plexus_err_t plexus_hal_mqtt_subscribe(const char* topic, int qos) {
+    (void)topic;
+    (void)qos;
+    return PLEXUS_ERR_HAL;
+}
+
+plexus_err_t plexus_hal_mqtt_receive(char* buf, size_t buf_size, size_t* msg_len) {
+    (void)buf;
+    (void)buf_size;
+    if (msg_len) *msg_len = 0;
+    return PLEXUS_OK;
+}
+#endif /* PLEXUS_ENABLE_COMMANDS */
+
+#endif /* PLEXUS_ENABLE_MQTT */
+
+/* ========================================================================= */
 /* Verification Checklist                                                    */
 /* ========================================================================= */
 

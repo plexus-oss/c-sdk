@@ -30,7 +30,7 @@ extern "C" {
 /* Version                                                                   */
 /* ------------------------------------------------------------------------- */
 
-#define PLEXUS_SDK_VERSION "0.2.1"
+#define PLEXUS_SDK_VERSION "0.3.0"
 
 /* ------------------------------------------------------------------------- */
 /* Compiler attributes                                                       */
@@ -63,6 +63,7 @@ typedef enum {
     PLEXUS_ERR_NOT_INITIALIZED, /* Client not initialized */
     PLEXUS_ERR_HAL,             /* HAL layer error */
     PLEXUS_ERR_INVALID_ARG,     /* Invalid argument (bad characters, etc.) */
+    PLEXUS_ERR_TRANSPORT,       /* Transport-specific error (MQTT disconnect, etc.) */
     PLEXUS_ERR__COUNT           /* Sentinel — must be last */
 } plexus_err_t;
 
@@ -126,6 +127,30 @@ typedef plexus_err_t (*plexus_command_handler_t)(
 
 #endif /* PLEXUS_ENABLE_COMMANDS */
 
+/* Connection status types (when enabled) */
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+
+typedef enum {
+    PLEXUS_STATUS_CONNECTED,
+    PLEXUS_STATUS_DISCONNECTED,
+    PLEXUS_STATUS_AUTH_FAILED,
+    PLEXUS_STATUS_RATE_LIMITED,
+} plexus_conn_status_t;
+
+typedef void (*plexus_status_callback_t)(plexus_conn_status_t status, void* user_data);
+
+#endif /* PLEXUS_ENABLE_STATUS_CALLBACK */
+
+/* Transport type (when MQTT enabled) */
+#if PLEXUS_ENABLE_MQTT
+
+typedef enum {
+    PLEXUS_TRANSPORT_HTTP = 0,
+    PLEXUS_TRANSPORT_MQTT,
+} plexus_transport_t;
+
+#endif /* PLEXUS_ENABLE_MQTT */
+
 /** @internal Client struct — do not access members directly */
 struct plexus_client {
     char api_key[PLEXUS_MAX_API_KEY_LEN];
@@ -156,6 +181,30 @@ struct plexus_client {
 #if PLEXUS_ENABLE_COMMANDS
     plexus_command_handler_t command_handler;
     uint32_t last_command_poll_ms;
+#endif
+
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+    plexus_status_callback_t status_callback;
+    void* status_callback_data;
+    plexus_conn_status_t last_status;
+#endif
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+    void* mutex;
+#endif
+
+#if PLEXUS_ENABLE_HEARTBEAT
+    char registered_metrics[PLEXUS_MAX_REGISTERED_METRICS][PLEXUS_MAX_METRIC_NAME_LEN];
+    uint16_t registered_metric_count;
+    char device_type[PLEXUS_MAX_METADATA_LEN];
+    char firmware_version[PLEXUS_MAX_METADATA_LEN];
+    uint32_t last_heartbeat_ms;
+#endif
+
+#if PLEXUS_ENABLE_MQTT
+    plexus_transport_t transport;
+    char broker_uri[PLEXUS_MAX_ENDPOINT_LEN];
+    char mqtt_topic[PLEXUS_MAX_ENDPOINT_LEN];
 #endif
 };
 
@@ -411,6 +460,63 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client);
 #endif /* PLEXUS_ENABLE_COMMANDS */
 
 /* ------------------------------------------------------------------------- */
+/* Connection status (opt-in via PLEXUS_ENABLE_STATUS_CALLBACK)              */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+
+/**
+ * Register a callback for connection status changes.
+ * The callback fires only on state transitions (not repeated for same status).
+ */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_on_status_change(plexus_client_t* client,
+                                      plexus_status_callback_t callback,
+                                      void* user_data);
+
+/** Get the last known connection status. */
+plexus_conn_status_t plexus_get_status(const plexus_client_t* client);
+
+#endif /* PLEXUS_ENABLE_STATUS_CALLBACK */
+
+/* ------------------------------------------------------------------------- */
+/* Heartbeat (opt-in via PLEXUS_ENABLE_HEARTBEAT)                            */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_HEARTBEAT
+
+/** Register a metric name for heartbeat reporting. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_register_metric(plexus_client_t* client, const char* metric_name);
+
+/** Set device info for heartbeat reporting. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_set_device_info(plexus_client_t* client,
+                                     const char* device_type,
+                                     const char* firmware_version);
+
+/** Send a heartbeat immediately. Also called by tick() on interval. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_heartbeat(plexus_client_t* client);
+
+#endif /* PLEXUS_ENABLE_HEARTBEAT */
+
+/* ------------------------------------------------------------------------- */
+/* MQTT transport (opt-in via PLEXUS_ENABLE_MQTT)                            */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_MQTT
+
+/** Set MQTT as the transport and configure broker URI. */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_set_transport_mqtt(plexus_client_t* client, const char* broker_uri);
+
+/** Get the currently active transport type. */
+plexus_transport_t plexus_get_transport(const plexus_client_t* client);
+
+#endif /* PLEXUS_ENABLE_MQTT */
+
+/* ------------------------------------------------------------------------- */
 /* Utility                                                                   */
 /* ------------------------------------------------------------------------- */
 
@@ -445,6 +551,26 @@ plexus_err_t plexus_hal_storage_write(const char* key, const void* data, size_t 
 plexus_err_t plexus_hal_storage_read(const char* key, void* data, size_t max_len, size_t* out_len);
 plexus_err_t plexus_hal_storage_clear(const char* key);
 #endif
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+void* plexus_hal_mutex_create(void);
+void  plexus_hal_mutex_lock(void* mutex);
+void  plexus_hal_mutex_unlock(void* mutex);
+void  plexus_hal_mutex_destroy(void* mutex);
+#endif
+
+#if PLEXUS_ENABLE_MQTT
+plexus_err_t plexus_hal_mqtt_connect(const char* broker_uri, const char* api_key,
+                                      const char* source_id);
+plexus_err_t plexus_hal_mqtt_publish(const char* topic, const char* payload,
+                                      size_t payload_len, int qos);
+bool plexus_hal_mqtt_is_connected(void);
+void plexus_hal_mqtt_disconnect(void);
+#if PLEXUS_ENABLE_COMMANDS
+plexus_err_t plexus_hal_mqtt_subscribe(const char* topic, int qos);
+plexus_err_t plexus_hal_mqtt_receive(char* buf, size_t buf_size, size_t* msg_len);
+#endif
+#endif /* PLEXUS_ENABLE_MQTT */
 
 #ifdef __cplusplus
 }
@@ -515,6 +641,38 @@ public:
     plexus_err_t setFlushCount(uint16_t count) {
         return plexus_set_flush_count(_client, count);
     }
+
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+    plexus_err_t onStatusChange(plexus_status_callback_t cb, void* userData) {
+        return plexus_on_status_change(_client, cb, userData);
+    }
+
+    plexus_conn_status_t getStatus() const {
+        return plexus_get_status(_client);
+    }
+#endif
+
+#if PLEXUS_ENABLE_HEARTBEAT
+    plexus_err_t registerMetric(const char* name) {
+        return plexus_register_metric(_client, name);
+    }
+
+    plexus_err_t setDeviceInfo(const char* deviceType, const char* fwVersion) {
+        return plexus_set_device_info(_client, deviceType, fwVersion);
+    }
+
+    plexus_err_t heartbeat() { return plexus_heartbeat(_client); }
+#endif
+
+#if PLEXUS_ENABLE_MQTT
+    plexus_err_t setTransportMqtt(const char* brokerUri) {
+        return plexus_set_transport_mqtt(_client, brokerUri);
+    }
+
+    plexus_transport_t getTransport() const {
+        return plexus_get_transport(_client);
+    }
+#endif
 
     plexus_client_t* handle() { return _client; }
 

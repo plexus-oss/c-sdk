@@ -174,4 +174,76 @@ plexus_err_t plexus_poll_commands(plexus_client_t* client) {
     return err;
 }
 
+#if PLEXUS_ENABLE_MQTT
+
+plexus_err_t plexus_mqtt_poll_commands(plexus_client_t* client) {
+    if (!client) return PLEXUS_ERR_NULL_PTR;
+    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
+    if (!client->command_handler) return PLEXUS_OK;
+
+    /* Subscribe to command topic if not already done */
+    char cmd_topic[256];
+    snprintf(cmd_topic, sizeof(cmd_topic), "%s/%s",
+             PLEXUS_MQTT_CMD_TOPIC_PREFIX, client->source_id);
+
+    plexus_err_t sub_err = plexus_hal_mqtt_subscribe(cmd_topic, PLEXUS_MQTT_QOS);
+    if (sub_err != PLEXUS_OK) {
+        return sub_err;
+    }
+
+    /* Try to receive a command */
+    size_t msg_len = 0;
+    plexus_err_t recv_err = plexus_hal_mqtt_receive(
+        client->json_buffer, PLEXUS_JSON_BUFFER_SIZE, &msg_len);
+    if (recv_err != PLEXUS_OK || msg_len == 0) {
+        return PLEXUS_OK;
+    }
+
+    /* Parse command */
+    plexus_command_t cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    if (plexus_json_parse_command(client->json_buffer, msg_len, &cmd) != 0) {
+        return PLEXUS_OK;
+    }
+    if (cmd.id[0] == '\0') {
+        return PLEXUS_OK;
+    }
+    if (!plexus_internal_is_url_safe(cmd.id)) {
+        return PLEXUS_ERR_INVALID_ARG;
+    }
+
+    /* Execute via user callback */
+    char output[PLEXUS_MAX_COMMAND_RESULT_LEN];
+    int exit_code = -1;
+    memset(output, 0, sizeof(output));
+
+    plexus_err_t exec_err = client->command_handler(&cmd, output, &exit_code);
+
+    const char* status;
+    const char* error_str = NULL;
+    if (exec_err != PLEXUS_OK) {
+        status = "failed";
+        error_str = plexus_strerror(exec_err);
+    } else {
+        status = (exit_code == 0) ? "completed" : "failed";
+    }
+
+    /* Build and publish result */
+    int result_len = plexus_json_build_result(
+        client->json_buffer, PLEXUS_JSON_BUFFER_SIZE,
+        status, exit_code, output, error_str);
+    if (result_len < 0) {
+        return PLEXUS_ERR_JSON;
+    }
+
+    char result_topic[256];
+    snprintf(result_topic, sizeof(result_topic), "%s/%s/result",
+             PLEXUS_MQTT_CMD_TOPIC_PREFIX, client->source_id);
+
+    return plexus_hal_mqtt_publish(result_topic, client->json_buffer,
+                                    (size_t)result_len, PLEXUS_MQTT_QOS);
+}
+
+#endif /* PLEXUS_ENABLE_MQTT */
+
 #endif /* PLEXUS_ENABLE_COMMANDS */

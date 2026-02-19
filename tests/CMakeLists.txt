@@ -67,3 +67,73 @@ target_link_options(test_json PRIVATE ${SANITIZER_FLAGS})
 target_link_libraries(test_json PRIVATE m)
 
 add_test(NAME test_json COMMAND test_json)
+
+# ---- test_status ----
+add_executable(test_status
+    test_status.c
+    ${SDK_SOURCES}
+    ${MOCK_HAL}
+)
+target_include_directories(test_status PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
+target_compile_features(test_status PRIVATE c_std_99)
+target_compile_options(test_status PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_STATUS_CALLBACK=1)
+target_link_options(test_status PRIVATE ${SANITIZER_FLAGS})
+target_link_libraries(test_status PRIVATE m)
+
+add_test(NAME test_status COMMAND test_status)
+
+# ---- test_threadsafe ----
+add_executable(test_threadsafe
+    test_threadsafe.c
+    ${SDK_SOURCES}
+    ${MOCK_HAL}
+)
+target_include_directories(test_threadsafe PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
+target_compile_features(test_threadsafe PRIVATE c_std_99)
+target_compile_options(test_threadsafe PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_THREAD_SAFE=1)
+target_link_options(test_threadsafe PRIVATE ${SANITIZER_FLAGS})
+target_link_libraries(test_threadsafe PRIVATE m)
+
+add_test(NAME test_threadsafe COMMAND test_threadsafe)
+
+# ---- test_persist ----
+add_executable(test_persist
+    test_persist.c
+    ${SDK_SOURCES}
+    ${MOCK_HAL}
+)
+target_include_directories(test_persist PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
+target_compile_features(test_persist PRIVATE c_std_99)
+target_compile_options(test_persist PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_PERSISTENT_BUFFER=1)
+target_link_options(test_persist PRIVATE ${SANITIZER_FLAGS})
+target_link_libraries(test_persist PRIVATE m)
+
+add_test(NAME test_persist COMMAND test_persist)
+
+# ---- test_heartbeat ----
+add_executable(test_heartbeat
+    test_heartbeat.c
+    ${SDK_SOURCES}
+    ${MOCK_HAL}
+)
+target_include_directories(test_heartbeat PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
+target_compile_features(test_heartbeat PRIVATE c_std_99)
+target_compile_options(test_heartbeat PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_HEARTBEAT=1)
+target_link_options(test_heartbeat PRIVATE ${SANITIZER_FLAGS})
+target_link_libraries(test_heartbeat PRIVATE m)
+
+add_test(NAME test_heartbeat COMMAND test_heartbeat)
+
+# ---- test_mqtt ----
+add_executable(test_mqtt
+    test_mqtt.c
+    ${SDK_SOURCES}
+    ${MOCK_HAL}
+)
+target_include_directories(test_mqtt PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
+target_compile_features(test_mqtt PRIVATE c_std_99)
+target_compile_options(test_mqtt PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_MQTT=1)
+target_link_options(test_mqtt PRIVATE ${SANITIZER_FLAGS})
+target_link_libraries(test_mqtt PRIVATE m)
+
+add_test(NAME test_mqtt COMMAND test_mqtt)

@@ -377,3 +377,66 @@ int plexus_json_build_result(char* buf, size_t buf_size,
 }
 
 #endif /* PLEXUS_ENABLE_COMMANDS */
+
+/* ========================================================================= */
+/* Heartbeat JSON builder (for PLEXUS_ENABLE_HEARTBEAT)                      */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_HEARTBEAT
+
+int plexus_json_build_heartbeat(const plexus_client_t* client, char* buf, size_t buf_size) {
+    if (!client || !buf || buf_size == 0) return -1;
+
+    json_writer_t w;
+    json_init(&w, buf, buf_size);
+
+    json_append(&w, "{\"sdk\":\"c/" PLEXUS_SDK_VERSION "\"");
+
+    json_append(&w, ",\"source_id\":");
+    json_append_escaped(&w, client->source_id);
+
+    if (client->device_type[0] != '\0') {
+        json_append(&w, ",\"device_type\":");
+        json_append_escaped(&w, client->device_type);
+    }
+
+    if (client->firmware_version[0] != '\0') {
+        json_append(&w, ",\"firmware_version\":");
+        json_append_escaped(&w, client->firmware_version);
+    }
+
+    json_append(&w, ",\"uptime_ms\":");
+    {
+        char num[16];
+        snprintf(num, sizeof(num), "%lu", (unsigned long)plexus_hal_get_tick_ms());
+        json_append(&w, num);
+    }
+
+    json_append(&w, ",\"total_sent\":");
+    {
+        char num[16];
+        snprintf(num, sizeof(num), "%lu", (unsigned long)client->total_sent);
+        json_append(&w, num);
+    }
+
+    json_append(&w, ",\"total_errors\":");
+    {
+        char num[16];
+        snprintf(num, sizeof(num), "%lu", (unsigned long)client->total_errors);
+        json_append(&w, num);
+    }
+
+    json_append(&w, ",\"metrics\":[");
+    for (uint16_t i = 0; i < client->registered_metric_count; i++) {
+        if (i > 0) json_append_char(&w, ',');
+        json_append_escaped(&w, client->registered_metrics[i]);
+    }
+    json_append_char(&w, ']');
+
+    json_append_char(&w, '}');
+
+    if (w.error) return -1;
+    return (int)w.pos;
+}
+
+#endif /* PLEXUS_ENABLE_HEARTBEAT */

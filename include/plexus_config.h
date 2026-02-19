@@ -132,6 +132,58 @@
 #define PLEXUS_ENABLE_PERSISTENT_BUFFER 0  /* Enable flash-backed buffer on flush failure */
 #endif
 
+#ifndef PLEXUS_PERSIST_MAX_BATCHES
+#define PLEXUS_PERSIST_MAX_BATCHES 8       /* Number of batch slots in persistent ring buffer */
+#endif
+
+/* Connection status callback (compile-time opt-in) */
+#ifndef PLEXUS_ENABLE_STATUS_CALLBACK
+#define PLEXUS_ENABLE_STATUS_CALLBACK 0    /* Enable connection status notifications */
+#endif
+
+/* Thread safety (compile-time opt-in) */
+#ifndef PLEXUS_ENABLE_THREAD_SAFE
+#define PLEXUS_ENABLE_THREAD_SAFE 0        /* Enable mutex-protected client access */
+#endif
+
+/* Device heartbeat / registration (compile-time opt-in) */
+#ifndef PLEXUS_ENABLE_HEARTBEAT
+#define PLEXUS_ENABLE_HEARTBEAT 0          /* Enable heartbeat and metric registry */
+#endif
+
+#ifndef PLEXUS_HEARTBEAT_INTERVAL_MS
+#define PLEXUS_HEARTBEAT_INTERVAL_MS 60000 /* Heartbeat send interval */
+#endif
+
+#ifndef PLEXUS_MAX_REGISTERED_METRICS
+#define PLEXUS_MAX_REGISTERED_METRICS 16   /* Max metric names in registry */
+#endif
+
+#ifndef PLEXUS_MAX_METADATA_LEN
+#define PLEXUS_MAX_METADATA_LEN 64         /* Max device_type / firmware_version length */
+#endif
+
+/* MQTT transport (compile-time opt-in) */
+#ifndef PLEXUS_ENABLE_MQTT
+#define PLEXUS_ENABLE_MQTT 0               /* Enable MQTT as alternative transport */
+#endif
+
+#ifndef PLEXUS_MQTT_TOPIC_PREFIX
+#define PLEXUS_MQTT_TOPIC_PREFIX "plexus/ingest"
+#endif
+
+#ifndef PLEXUS_MQTT_QOS
+#define PLEXUS_MQTT_QOS 1                  /* MQTT QoS level for publish */
+#endif
+
+#ifndef PLEXUS_MQTT_KEEP_ALIVE_S
+#define PLEXUS_MQTT_KEEP_ALIVE_S 60        /* MQTT keep-alive interval */
+#endif
+
+#ifndef PLEXUS_MQTT_CMD_TOPIC_PREFIX
+#define PLEXUS_MQTT_CMD_TOPIC_PREFIX "plexus/commands"
+#endif
+
 /* Debug settings */
 #ifndef PLEXUS_DEBUG
 #define PLEXUS_DEBUG 0                 /* Enable debug logging */

@@ -184,6 +184,42 @@ void plexus_hal_log(const char* fmt, ...) {
 #endif
 }
 
+/* ========================================================================= */
+/* Thread safety: FreeRTOS mutex for ESP32/8266, no-op for others            */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+
+#if defined(ESP32)
+#include "freertos/semphr.h"
+
+void* plexus_hal_mutex_create(void) {
+    return (void*)xSemaphoreCreateRecursiveMutex();
+}
+
+void plexus_hal_mutex_lock(void* mutex) {
+    if (mutex) xSemaphoreTakeRecursive((SemaphoreHandle_t)mutex, portMAX_DELAY);
+}
+
+void plexus_hal_mutex_unlock(void* mutex) {
+    if (mutex) xSemaphoreGiveRecursive((SemaphoreHandle_t)mutex);
+}
+
+void plexus_hal_mutex_destroy(void* mutex) {
+    if (mutex) vSemaphoreDelete((SemaphoreHandle_t)mutex);
+}
+
+#else /* Non-FreeRTOS Arduino: no-op stubs */
+
+void* plexus_hal_mutex_create(void) { return (void*)1; }
+void  plexus_hal_mutex_lock(void* mutex) { (void)mutex; }
+void  plexus_hal_mutex_unlock(void* mutex) { (void)mutex; }
+void  plexus_hal_mutex_destroy(void* mutex) { (void)mutex; }
+
+#endif /* ESP32 */
+
+#endif /* PLEXUS_ENABLE_THREAD_SAFE */
+
 } /* extern "C" */
 
 /* PlexusClient C++ wrapper is defined in plexus.h (inside #ifdef __cplusplus) */

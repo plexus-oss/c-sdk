@@ -7,6 +7,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
 
 /* ------------------------------------------------------------------------- */
 /* Compile-time configuration validation                                     */
@@ -72,6 +74,33 @@ static uint32_t plexus_crc32(const void* data, size_t len) {
 #endif /* PLEXUS_ENABLE_PERSISTENT_BUFFER */
 
 /* ------------------------------------------------------------------------- */
+/* Thread safety macros                                                      */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+    #define PLEXUS_LOCK(c)   do { if ((c)->mutex) plexus_hal_mutex_lock((c)->mutex); } while(0)
+    #define PLEXUS_UNLOCK(c) do { if ((c)->mutex) plexus_hal_mutex_unlock((c)->mutex); } while(0)
+#else
+    #define PLEXUS_LOCK(c)   ((void)0)
+    #define PLEXUS_UNLOCK(c) ((void)0)
+#endif
+
+/* ------------------------------------------------------------------------- */
+/* Connection status helper                                                  */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+static void notify_status(plexus_client_t* client, plexus_conn_status_t status) {
+    if (status != client->last_status) {
+        client->last_status = status;
+        if (client->status_callback) {
+            client->status_callback(status, client->status_callback_data);
+        }
+    }
+}
+#endif
+
+/* ------------------------------------------------------------------------- */
 /* Error messages                                                            */
 /* ------------------------------------------------------------------------- */
 
@@ -89,6 +118,7 @@ static const char* s_error_messages[] = {
     "Client not initialized",
     "HAL error",
     "Invalid argument",
+    "Transport error",
 };
 
 const char* plexus_strerror(plexus_err_t err) {
@@ -174,6 +204,29 @@ static plexus_client_t* client_init_common(plexus_client_t* client,
     client->last_command_poll_ms = plexus_hal_get_tick_ms();
 #endif
 
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+    client->status_callback = NULL;
+    client->status_callback_data = NULL;
+    client->last_status = PLEXUS_STATUS_DISCONNECTED;
+#endif
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+    client->mutex = plexus_hal_mutex_create();
+#endif
+
+#if PLEXUS_ENABLE_HEARTBEAT
+    client->registered_metric_count = 0;
+    client->device_type[0] = '\0';
+    client->firmware_version[0] = '\0';
+    client->last_heartbeat_ms = plexus_hal_get_tick_ms();
+#endif
+
+#if PLEXUS_ENABLE_MQTT
+    client->transport = PLEXUS_TRANSPORT_HTTP;
+    client->broker_uri[0] = '\0';
+    client->mqtt_topic[0] = '\0';
+#endif
+
 #if PLEXUS_DEBUG
     plexus_hal_log("Plexus SDK v%s initialized (source: %s, client size: %u bytes)",
                    PLEXUS_SDK_VERSION, source_id, (unsigned)sizeof(plexus_client_t));
@@ -231,6 +284,20 @@ void plexus_free(plexus_client_t* client) {
     if (!client) {
         return;
     }
+
+#if PLEXUS_ENABLE_MQTT
+    if (client->transport == PLEXUS_TRANSPORT_MQTT) {
+        plexus_hal_mqtt_disconnect();
+    }
+#endif
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+    if (client->mutex) {
+        plexus_hal_mutex_destroy(client->mutex);
+        client->mutex = NULL;
+    }
+#endif
+
     client->initialized = false;
     if (client->_heap_allocated) {
         free(client);
@@ -244,12 +311,15 @@ plexus_err_t plexus_set_endpoint(plexus_client_t* client, const char* endpoint) 
     if (!client->initialized) {
         return PLEXUS_ERR_NOT_INITIALIZED;
     }
+    PLEXUS_LOCK(client);
     if (strlen(endpoint) >= sizeof(client->endpoint)) {
+        PLEXUS_UNLOCK(client);
         return PLEXUS_ERR_STRING_TOO_LONG;
     }
 
     strncpy(client->endpoint, endpoint, sizeof(client->endpoint) - 1);
     client->endpoint[sizeof(client->endpoint) - 1] = '\0';
+    PLEXUS_UNLOCK(client);
     return PLEXUS_OK;
 }
 
@@ -260,7 +330,9 @@ plexus_err_t plexus_set_flush_interval(plexus_client_t* client, uint32_t interva
     if (!client->initialized) {
         return PLEXUS_ERR_NOT_INITIALIZED;
     }
+    PLEXUS_LOCK(client);
     client->flush_interval_ms = interval_ms;
+    PLEXUS_UNLOCK(client);
     return PLEXUS_OK;
 }
 
@@ -271,7 +343,9 @@ plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count) {
     if (!client->initialized) {
         return PLEXUS_ERR_NOT_INITIALIZED;
     }
+    PLEXUS_LOCK(client);
     client->auto_flush_count = count;
+    PLEXUS_UNLOCK(client);
     return PLEXUS_OK;
 }
 
@@ -343,7 +417,10 @@ plexus_err_t plexus_send_number(plexus_client_t* client, const char* metric, dou
     memset(&v, 0, sizeof(v));
     v.type = PLEXUS_VALUE_NUMBER;
     v.data.number = value;
-    return add_metric(client, metric, &v, 0);
+    PLEXUS_LOCK(client);
+    plexus_err_t err = add_metric(client, metric, &v, 0);
+    PLEXUS_UNLOCK(client);
+    return err;
 }
 
 plexus_err_t plexus_send_number_ts(plexus_client_t* client, const char* metric,
@@ -352,7 +429,10 @@ plexus_err_t plexus_send_number_ts(plexus_client_t* client, const char* metric,
     memset(&v, 0, sizeof(v));
     v.type = PLEXUS_VALUE_NUMBER;
     v.data.number = value;
-    return add_metric(client, metric, &v, timestamp_ms);
+    PLEXUS_LOCK(client);
+    plexus_err_t err = add_metric(client, metric, &v, timestamp_ms);
+    PLEXUS_UNLOCK(client);
+    return err;
 }
 
 #if PLEXUS_ENABLE_STRING_VALUES
@@ -368,7 +448,10 @@ plexus_err_t plexus_send_string(plexus_client_t* client, const char* metric, con
     memset(&v, 0, sizeof(v));
     v.type = PLEXUS_VALUE_STRING;
     strncpy(v.data.string, value, PLEXUS_MAX_STRING_VALUE_LEN - 1);
-    return add_metric(client, metric, &v, 0);
+    PLEXUS_LOCK(client);
+    plexus_err_t err = add_metric(client, metric, &v, 0);
+    PLEXUS_UNLOCK(client);
+    return err;
 }
 #endif
 
@@ -378,7 +461,10 @@ plexus_err_t plexus_send_bool(plexus_client_t* client, const char* metric, bool 
     memset(&v, 0, sizeof(v));
     v.type = PLEXUS_VALUE_BOOL;
     v.data.boolean = value;
-    return add_metric(client, metric, &v, 0);
+    PLEXUS_LOCK(client);
+    plexus_err_t err = add_metric(client, metric, &v, 0);
+    PLEXUS_UNLOCK(client);
+    return err;
 }
 #endif
 
@@ -395,6 +481,7 @@ plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metr
     if (!client) {
         return PLEXUS_ERR_NULL_PTR;
     }
+    PLEXUS_LOCK(client);
     uint16_t saved_flush_count = client->auto_flush_count;
     client->auto_flush_count = 0; /* Suppress auto-flush temporarily */
 
@@ -407,6 +494,7 @@ plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metr
     client->auto_flush_count = saved_flush_count; /* Restore */
 
     if (err != PLEXUS_OK) {
+        PLEXUS_UNLOCK(client);
         return err;
     }
 
@@ -422,7 +510,9 @@ plexus_err_t plexus_send_number_tagged(plexus_client_t* client, const char* metr
         }
     }
 
-    return maybe_auto_flush(client);
+    err = maybe_auto_flush(client);
+    PLEXUS_UNLOCK(client);
+    return err;
 }
 #endif
 
@@ -480,6 +570,72 @@ static bool tick_elapsed(uint32_t now, uint32_t deadline) {
 /* Flush & network                                                           */
 /* ------------------------------------------------------------------------- */
 
+/* ------------------------------------------------------------------------- */
+/* Multi-batch persistent buffer helpers                                     */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_PERSISTENT_BUFFER
+
+typedef struct {
+    uint16_t head;    /* Next slot to write */
+    uint16_t tail;    /* Next slot to read */
+    uint16_t count;   /* Number of occupied slots */
+    uint32_t crc;     /* CRC of head/tail/count */
+} plexus_persist_meta_t;
+
+static void persist_slot_key(char* buf, size_t buf_size, uint16_t slot) {
+    snprintf(buf, buf_size, "plexus_b%u", (unsigned)slot);
+}
+
+static void persist_load_meta(plexus_persist_meta_t* meta) {
+    memset(meta, 0, sizeof(*meta));
+    size_t stored_len = 0;
+    plexus_err_t err = plexus_hal_storage_read("plexus_meta", meta, sizeof(*meta), &stored_len);
+    if (err != PLEXUS_OK || stored_len != sizeof(*meta)) {
+        memset(meta, 0, sizeof(*meta));
+        return;
+    }
+    /* Validate CRC */
+    uint32_t expected_crc = plexus_crc32(meta, offsetof(plexus_persist_meta_t, crc));
+    if (meta->crc != expected_crc) {
+        memset(meta, 0, sizeof(*meta));
+    }
+}
+
+static void persist_save_meta(const plexus_persist_meta_t* meta) {
+    plexus_persist_meta_t out = *meta;
+    out.crc = plexus_crc32(&out, offsetof(plexus_persist_meta_t, crc));
+    plexus_hal_storage_write("plexus_meta", &out, sizeof(out));
+}
+
+#endif /* PLEXUS_ENABLE_PERSISTENT_BUFFER */
+
+/* ------------------------------------------------------------------------- */
+/* Flush & network                                                           */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Send a JSON payload via the active transport (HTTP or MQTT).
+ */
+static plexus_err_t flush_send_payload(plexus_client_t* client,
+                                        const char* payload, size_t payload_len) {
+#if PLEXUS_ENABLE_MQTT
+    if (client->transport == PLEXUS_TRANSPORT_MQTT) {
+        if (!plexus_hal_mqtt_is_connected()) {
+            plexus_err_t conn_err = plexus_hal_mqtt_connect(
+                client->broker_uri, client->api_key, client->source_id);
+            if (conn_err != PLEXUS_OK) {
+                return PLEXUS_ERR_TRANSPORT;
+            }
+        }
+        return plexus_hal_mqtt_publish(client->mqtt_topic, payload, payload_len,
+                                        PLEXUS_MQTT_QOS);
+    }
+#endif
+    return plexus_hal_http_post(client->endpoint, client->api_key,
+                                 PLEXUS_USER_AGENT, payload, payload_len);
+}
+
 plexus_err_t plexus_flush(plexus_client_t* client) {
     if (!client) {
         return PLEXUS_ERR_NULL_PTR;
@@ -488,10 +644,13 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
         return PLEXUS_ERR_NOT_INITIALIZED;
     }
 
+    PLEXUS_LOCK(client);
+
     /* Respect rate limit cooldown */
     if (client->rate_limit_until_ms > 0) {
         uint32_t now = plexus_hal_get_tick_ms();
         if (!tick_elapsed(now, client->rate_limit_until_ms)) {
+            PLEXUS_UNLOCK(client);
             return PLEXUS_ERR_RATE_LIMIT;
         }
         /* Cooldown expired */
@@ -499,50 +658,63 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
     }
 
 #if PLEXUS_ENABLE_PERSISTENT_BUFFER
-    /* Attempt to send previously persisted data first */
+    /* Attempt to drain persisted ring buffer first */
     {
-        size_t stored_len = 0;
-        plexus_err_t restore_err = plexus_hal_storage_read(
-            "plexus_buf", client->json_buffer, PLEXUS_JSON_BUFFER_SIZE, &stored_len);
-        if (restore_err == PLEXUS_OK && stored_len > sizeof(plexus_persist_header_t)) {
+        plexus_persist_meta_t meta;
+        persist_load_meta(&meta);
+
+        while (meta.count > 0) {
+            char slot_key[16];
+            persist_slot_key(slot_key, sizeof(slot_key), meta.tail);
+
+            size_t stored_len = 0;
+            plexus_err_t restore_err = plexus_hal_storage_read(
+                slot_key, client->json_buffer, PLEXUS_JSON_BUFFER_SIZE, &stored_len);
+            if (restore_err != PLEXUS_OK || stored_len <= sizeof(plexus_persist_header_t)) {
+                /* Corrupt slot — skip it */
+                plexus_hal_storage_clear(slot_key);
+                meta.tail = (meta.tail + 1) % PLEXUS_PERSIST_MAX_BATCHES;
+                meta.count--;
+                persist_save_meta(&meta);
+                continue;
+            }
+
             /* Validate CRC32 header */
             plexus_persist_header_t header;
             memcpy(&header, client->json_buffer, sizeof(header));
             size_t payload_len = stored_len - sizeof(header);
 
-            if (header.data_len <= payload_len) {
-                const char* payload = client->json_buffer + sizeof(header);
-                uint32_t actual_crc = plexus_crc32(payload, header.data_len);
-
-                if (actual_crc == header.crc32) {
+            if (header.data_len > payload_len ||
+                plexus_crc32(client->json_buffer + sizeof(header), header.data_len) != header.crc32) {
 #if PLEXUS_DEBUG
-                    plexus_hal_log("Restoring %u bytes from persistent buffer",
-                                   (unsigned)header.data_len);
+                plexus_hal_log("Persistent slot %u CRC mismatch — discarding", (unsigned)meta.tail);
 #endif
-                    /* Shift payload to front of buffer for sending */
-                    memmove(client->json_buffer, payload, header.data_len);
+                plexus_hal_storage_clear(slot_key);
+                meta.tail = (meta.tail + 1) % PLEXUS_PERSIST_MAX_BATCHES;
+                meta.count--;
+                persist_save_meta(&meta);
+                continue;
+            }
 
-                    plexus_err_t send_err = plexus_hal_http_post(
-                        client->endpoint, client->api_key, PLEXUS_USER_AGENT,
-                        client->json_buffer, header.data_len);
-                    if (send_err == PLEXUS_OK) {
-                        plexus_hal_storage_clear("plexus_buf");
-                    }
-                } else {
-#if PLEXUS_DEBUG
-                    plexus_hal_log("Persistent buffer CRC mismatch — discarding corrupt data");
-#endif
-                    plexus_hal_storage_clear("plexus_buf");
-                }
+            /* Shift payload to front of buffer for sending */
+            memmove(client->json_buffer, client->json_buffer + sizeof(header), header.data_len);
+
+            plexus_err_t send_err = flush_send_payload(client, client->json_buffer, header.data_len);
+            if (send_err == PLEXUS_OK) {
+                plexus_hal_storage_clear(slot_key);
+                meta.tail = (meta.tail + 1) % PLEXUS_PERSIST_MAX_BATCHES;
+                meta.count--;
+                persist_save_meta(&meta);
             } else {
-                /* Invalid header — clear corrupt data */
-                plexus_hal_storage_clear("plexus_buf");
+                /* Can't drain more right now, try current batch */
+                break;
             }
         }
     }
 #endif
 
     if (client->metric_count == 0) {
+        PLEXUS_UNLOCK(client);
         return PLEXUS_ERR_NO_DATA;
     }
 
@@ -550,6 +722,7 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
     int json_len = plexus_json_serialize(client, client->json_buffer, PLEXUS_JSON_BUFFER_SIZE);
     if (json_len < 0) {
         client->total_errors++;
+        PLEXUS_UNLOCK(client);
         return PLEXUS_ERR_JSON;
     }
 
@@ -567,20 +740,25 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
             plexus_hal_delay_ms(delay);
         }
 
-        err = plexus_hal_http_post(client->endpoint, client->api_key,
-                                    PLEXUS_USER_AGENT,
-                                    client->json_buffer, (size_t)json_len);
+        err = flush_send_payload(client, client->json_buffer, (size_t)json_len);
 
         if (err == PLEXUS_OK) {
             client->total_sent += client->metric_count;
             client->metric_count = 0;
             client->last_flush_ms = plexus_hal_get_tick_ms();
             client->retry_backoff_ms = 0;
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+            notify_status(client, PLEXUS_STATUS_CONNECTED);
+#endif
+            PLEXUS_UNLOCK(client);
             return PLEXUS_OK;
         }
 
         /* Don't retry on auth errors */
         if (err == PLEXUS_ERR_AUTH) {
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+            notify_status(client, PLEXUS_STATUS_AUTH_FAILED);
+#endif
             break;
         }
 
@@ -588,6 +766,9 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
         if (err == PLEXUS_ERR_RATE_LIMIT) {
             client->rate_limit_until_ms =
                 plexus_hal_get_tick_ms() + PLEXUS_RATE_LIMIT_COOLDOWN_MS;
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+            notify_status(client, PLEXUS_STATUS_RATE_LIMITED);
+#endif
 #if PLEXUS_DEBUG
             plexus_hal_log("Rate limited — cooling down for %d ms",
                            PLEXUS_RATE_LIMIT_COOLDOWN_MS);
@@ -602,11 +783,23 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
 #endif
     }
 
+    /* All retries exhausted (or non-retryable error) */
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+    if (err != PLEXUS_ERR_AUTH && err != PLEXUS_ERR_RATE_LIMIT) {
+        notify_status(client, PLEXUS_STATUS_DISCONNECTED);
+    }
+#endif
+
 #if PLEXUS_ENABLE_PERSISTENT_BUFFER
-    /* Prepend CRC32 header to detect flash corruption on restore */
+    /* Save failed batch to next ring buffer slot */
     if ((size_t)json_len + sizeof(plexus_persist_header_t) <= PLEXUS_JSON_BUFFER_SIZE) {
-        /* Build header + payload into a temp region.
-         * Shift json_buffer contents to make room for the header. */
+        plexus_persist_meta_t meta;
+        persist_load_meta(&meta);
+
+        char slot_key[16];
+        persist_slot_key(slot_key, sizeof(slot_key), meta.head);
+
+        /* Build header + payload */
         memmove(client->json_buffer + sizeof(plexus_persist_header_t),
                 client->json_buffer, (size_t)json_len);
 
@@ -616,16 +809,28 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
                                      (size_t)json_len);
         memcpy(client->json_buffer, &header, sizeof(header));
 
-        plexus_hal_storage_write("plexus_buf", client->json_buffer,
+        plexus_hal_storage_write(slot_key, client->json_buffer,
                                   sizeof(header) + (size_t)json_len);
+
+        meta.head = (meta.head + 1) % PLEXUS_PERSIST_MAX_BATCHES;
+        if (meta.count >= PLEXUS_PERSIST_MAX_BATCHES) {
+            /* Overwrite oldest — advance tail */
+            meta.tail = (meta.tail + 1) % PLEXUS_PERSIST_MAX_BATCHES;
+        } else {
+            meta.count++;
+        }
+        persist_save_meta(&meta);
+
 #if PLEXUS_DEBUG
-        plexus_hal_log("Persisted %d bytes to flash buffer (CRC: 0x%08x)",
-                       json_len, (unsigned)header.crc32);
+        plexus_hal_log("Persisted %d bytes to slot %u (count: %u)",
+                       json_len, (unsigned)((meta.head + PLEXUS_PERSIST_MAX_BATCHES - 1) % PLEXUS_PERSIST_MAX_BATCHES),
+                       (unsigned)meta.count);
 #endif
     }
 #endif
 
     client->total_errors++;
+    PLEXUS_UNLOCK(client);
     return err;
 }
 
@@ -638,7 +843,9 @@ uint16_t plexus_pending_count(const plexus_client_t* client) {
 
 void plexus_clear(plexus_client_t* client) {
     if (client && client->initialized) {
+        PLEXUS_LOCK(client);
         client->metric_count = 0;
+        PLEXUS_UNLOCK(client);
     }
 }
 
@@ -664,19 +871,36 @@ plexus_err_t plexus_tick(plexus_client_t* client) {
         return PLEXUS_ERR_NOT_INITIALIZED;
     }
 
+    PLEXUS_LOCK(client);
+
 #if PLEXUS_ENABLE_COMMANDS
     if (client->command_handler) {
         uint32_t now_ms = plexus_hal_get_tick_ms();
         uint32_t cmd_deadline = client->last_command_poll_ms + PLEXUS_COMMAND_POLL_INTERVAL_MS;
         if (tick_elapsed(now_ms, cmd_deadline)) {
             client->last_command_poll_ms = now_ms;
+            PLEXUS_UNLOCK(client);
             plexus_poll_commands(client);
+            PLEXUS_LOCK(client);
+        }
+    }
+#endif
+
+#if PLEXUS_ENABLE_HEARTBEAT
+    {
+        uint32_t now_ms = plexus_hal_get_tick_ms();
+        uint32_t hb_deadline = client->last_heartbeat_ms + PLEXUS_HEARTBEAT_INTERVAL_MS;
+        if (tick_elapsed(now_ms, hb_deadline)) {
+            PLEXUS_UNLOCK(client);
+            plexus_heartbeat(client);
+            PLEXUS_LOCK(client);
         }
     }
 #endif
 
     /* Nothing to flush — return OK (idle is not an error) */
     if (client->metric_count == 0) {
+        PLEXUS_UNLOCK(client);
         return PLEXUS_OK;
     }
 
@@ -688,10 +912,178 @@ plexus_err_t plexus_tick(plexus_client_t* client) {
             uint32_t now_ms = plexus_hal_get_tick_ms();
             uint32_t flush_deadline = client->last_flush_ms + interval;
             if (tick_elapsed(now_ms, flush_deadline)) {
+                PLEXUS_UNLOCK(client);
                 return plexus_flush(client);
             }
         }
     }
 
+    PLEXUS_UNLOCK(client);
     return PLEXUS_OK;
 }
+
+/* ------------------------------------------------------------------------- */
+/* Connection status API                                                     */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_STATUS_CALLBACK
+
+plexus_err_t plexus_on_status_change(plexus_client_t* client,
+                                      plexus_status_callback_t callback,
+                                      void* user_data) {
+    if (!client) return PLEXUS_ERR_NULL_PTR;
+    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
+
+    PLEXUS_LOCK(client);
+    client->status_callback = callback;
+    client->status_callback_data = user_data;
+    PLEXUS_UNLOCK(client);
+    return PLEXUS_OK;
+}
+
+plexus_conn_status_t plexus_get_status(const plexus_client_t* client) {
+    if (!client || !client->initialized) {
+        return PLEXUS_STATUS_DISCONNECTED;
+    }
+    return client->last_status;
+}
+
+#endif /* PLEXUS_ENABLE_STATUS_CALLBACK */
+
+/* ------------------------------------------------------------------------- */
+/* Heartbeat API                                                             */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_HEARTBEAT
+
+plexus_err_t plexus_register_metric(plexus_client_t* client, const char* metric_name) {
+    if (!client || !metric_name) return PLEXUS_ERR_NULL_PTR;
+    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
+
+    PLEXUS_LOCK(client);
+
+    if (client->registered_metric_count >= PLEXUS_MAX_REGISTERED_METRICS) {
+        PLEXUS_UNLOCK(client);
+        return PLEXUS_ERR_BUFFER_FULL;
+    }
+
+    /* Check for duplicate */
+    for (uint16_t i = 0; i < client->registered_metric_count; i++) {
+        if (strcmp(client->registered_metrics[i], metric_name) == 0) {
+            PLEXUS_UNLOCK(client);
+            return PLEXUS_OK;
+        }
+    }
+
+    strncpy(client->registered_metrics[client->registered_metric_count],
+            metric_name, PLEXUS_MAX_METRIC_NAME_LEN - 1);
+    client->registered_metrics[client->registered_metric_count][PLEXUS_MAX_METRIC_NAME_LEN - 1] = '\0';
+    client->registered_metric_count++;
+
+    PLEXUS_UNLOCK(client);
+    return PLEXUS_OK;
+}
+
+plexus_err_t plexus_set_device_info(plexus_client_t* client,
+                                     const char* device_type,
+                                     const char* firmware_version) {
+    if (!client) return PLEXUS_ERR_NULL_PTR;
+    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
+
+    PLEXUS_LOCK(client);
+
+    if (device_type) {
+        strncpy(client->device_type, device_type, PLEXUS_MAX_METADATA_LEN - 1);
+        client->device_type[PLEXUS_MAX_METADATA_LEN - 1] = '\0';
+    }
+    if (firmware_version) {
+        strncpy(client->firmware_version, firmware_version, PLEXUS_MAX_METADATA_LEN - 1);
+        client->firmware_version[PLEXUS_MAX_METADATA_LEN - 1] = '\0';
+    }
+
+    PLEXUS_UNLOCK(client);
+    return PLEXUS_OK;
+}
+
+plexus_err_t plexus_heartbeat(plexus_client_t* client) {
+    if (!client) return PLEXUS_ERR_NULL_PTR;
+    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
+
+    PLEXUS_LOCK(client);
+
+    int hb_len = plexus_json_build_heartbeat(client, client->json_buffer, PLEXUS_JSON_BUFFER_SIZE);
+    if (hb_len < 0) {
+        PLEXUS_UNLOCK(client);
+        return PLEXUS_ERR_JSON;
+    }
+
+    /* Build heartbeat URL: replace /api/ingest with /api/heartbeat */
+    char hb_url[512];
+    {
+        const char* api_pos = strstr(client->endpoint, "/api/ingest");
+        size_t base_len;
+        if (api_pos) {
+            base_len = (size_t)(api_pos - client->endpoint);
+        } else {
+            base_len = strlen(client->endpoint);
+            while (base_len > 0 && client->endpoint[base_len - 1] == '/') {
+                base_len--;
+            }
+        }
+
+        int written = snprintf(hb_url, sizeof(hb_url), "%.*s/api/heartbeat",
+                               (int)base_len, client->endpoint);
+        if (written < 0 || written >= (int)sizeof(hb_url)) {
+            PLEXUS_UNLOCK(client);
+            return PLEXUS_ERR_HAL;
+        }
+    }
+
+    plexus_err_t err = plexus_hal_http_post(hb_url, client->api_key, PLEXUS_USER_AGENT,
+                                              client->json_buffer, (size_t)hb_len);
+    client->last_heartbeat_ms = plexus_hal_get_tick_ms();
+
+    PLEXUS_UNLOCK(client);
+    return err;
+}
+
+#endif /* PLEXUS_ENABLE_HEARTBEAT */
+
+/* ------------------------------------------------------------------------- */
+/* MQTT transport API                                                        */
+/* ------------------------------------------------------------------------- */
+
+#if PLEXUS_ENABLE_MQTT
+
+plexus_err_t plexus_set_transport_mqtt(plexus_client_t* client, const char* broker_uri) {
+    if (!client || !broker_uri) return PLEXUS_ERR_NULL_PTR;
+    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
+
+    PLEXUS_LOCK(client);
+
+    if (strlen(broker_uri) >= sizeof(client->broker_uri)) {
+        PLEXUS_UNLOCK(client);
+        return PLEXUS_ERR_STRING_TOO_LONG;
+    }
+
+    strncpy(client->broker_uri, broker_uri, sizeof(client->broker_uri) - 1);
+    client->broker_uri[sizeof(client->broker_uri) - 1] = '\0';
+
+    /* Build topic: plexus/ingest/<source_id> */
+    snprintf(client->mqtt_topic, sizeof(client->mqtt_topic),
+             "%s/%s", PLEXUS_MQTT_TOPIC_PREFIX, client->source_id);
+
+    client->transport = PLEXUS_TRANSPORT_MQTT;
+
+    PLEXUS_UNLOCK(client);
+    return PLEXUS_OK;
+}
+
+plexus_transport_t plexus_get_transport(const plexus_client_t* client) {
+    if (!client || !client->initialized) {
+        return PLEXUS_TRANSPORT_HTTP;
+    }
+    return client->transport;
+}
+
+#endif /* PLEXUS_ENABLE_MQTT */

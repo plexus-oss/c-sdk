@@ -34,4 +34,8 @@ int plexus_json_build_result(char* buf, size_t buf_size,
                               const char* output, const char* error);
 #endif
 
+#if PLEXUS_ENABLE_HEARTBEAT
+int plexus_json_build_heartbeat(const plexus_client_t* client, char* buf, size_t buf_size);
+#endif
+
 #endif /* PLEXUS_INTERNAL_H */

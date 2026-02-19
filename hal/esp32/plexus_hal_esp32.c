@@ -238,4 +238,36 @@ void plexus_hal_init_time(const char* ntp_server) {
     }
 }
 
+/* ========================================================================= */
+/* Thread safety: FreeRTOS recursive mutex                                   */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+
+#include "freertos/semphr.h"
+
+void* plexus_hal_mutex_create(void) {
+    return (void*)xSemaphoreCreateRecursiveMutex();
+}
+
+void plexus_hal_mutex_lock(void* mutex) {
+    if (mutex) {
+        xSemaphoreTakeRecursive((SemaphoreHandle_t)mutex, portMAX_DELAY);
+    }
+}
+
+void plexus_hal_mutex_unlock(void* mutex) {
+    if (mutex) {
+        xSemaphoreGiveRecursive((SemaphoreHandle_t)mutex);
+    }
+}
+
+void plexus_hal_mutex_destroy(void* mutex) {
+    if (mutex) {
+        vSemaphoreDelete((SemaphoreHandle_t)mutex);
+    }
+}
+
+#endif /* PLEXUS_ENABLE_THREAD_SAFE */
+
 #endif /* ESP_PLATFORM */

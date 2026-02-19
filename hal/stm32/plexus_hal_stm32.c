@@ -537,4 +537,46 @@ void plexus_hal_log(const char* fmt, ...) {
 #endif
 }
 
+/* ========================================================================= */
+/* Thread safety: CMSIS-OS mutex (FreeRTOS) or no-op (bare-metal)            */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+
+#if PLEXUS_HAS_FREERTOS
+
+void* plexus_hal_mutex_create(void) {
+    osMutexDef(plexus_mtx);
+    return (void*)osMutexCreate(osMutex(plexus_mtx));
+}
+
+void plexus_hal_mutex_lock(void* mutex) {
+    if (mutex) {
+        osMutexWait((osMutexId)mutex, osWaitForever);
+    }
+}
+
+void plexus_hal_mutex_unlock(void* mutex) {
+    if (mutex) {
+        osMutexRelease((osMutexId)mutex);
+    }
+}
+
+void plexus_hal_mutex_destroy(void* mutex) {
+    if (mutex) {
+        osMutexDelete((osMutexId)mutex);
+    }
+}
+
+#else /* Bare-metal: no-op stubs */
+
+void* plexus_hal_mutex_create(void) { return (void*)1; }
+void  plexus_hal_mutex_lock(void* mutex) { (void)mutex; }
+void  plexus_hal_mutex_unlock(void* mutex) { (void)mutex; }
+void  plexus_hal_mutex_destroy(void* mutex) { (void)mutex; }
+
+#endif /* PLEXUS_HAS_FREERTOS */
+
+#endif /* PLEXUS_ENABLE_THREAD_SAFE */
+
 #endif /* STM32 */

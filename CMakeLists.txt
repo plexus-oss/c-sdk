@@ -23,6 +23,7 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
             "src/plexus_commands.c"
             "hal/esp32/plexus_hal_esp32.c"
             "hal/esp32/plexus_hal_storage_esp32.c"
+            "hal/esp32/plexus_hal_mqtt_esp32.c"
         INCLUDE_DIRS
             "include"
             "src"
@@ -30,12 +31,13 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
             esp_http_client
             esp_timer
             nvs_flash
+            mqtt
     )
     return()
 endif()
 
 # Standalone CMake build
-project(plexus-sdk VERSION 0.2.1 LANGUAGES C CXX)
+project(plexus-sdk VERSION 0.3.0 LANGUAGES C CXX)
 
 # Options
 option(PLEXUS_BUILD_EXAMPLES "Build example applications" OFF)

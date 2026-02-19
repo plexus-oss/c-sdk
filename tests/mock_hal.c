@@ -70,6 +70,10 @@ const char* mock_hal_last_user_agent(void) {
     return s_last_user_agent;
 }
 
+const char* mock_hal_last_post_url(void) {
+    return s_last_post_url;
+}
+
 int mock_hal_delay_call_count(void) {
     return s_delay_call_count;
 }
@@ -146,36 +150,217 @@ void plexus_hal_log(const char* fmt, ...) {
     (void)fmt;
 }
 
+/* ========================================================================= */
+/* Persistent storage mock — key-value map                                   */
+/* ========================================================================= */
+
 #if PLEXUS_ENABLE_PERSISTENT_BUFFER
-static char s_storage_data[PLEXUS_JSON_BUFFER_SIZE] = {0};
-static size_t s_storage_len = 0;
-static bool s_storage_has_data = false;
+
+#define MOCK_STORAGE_SLOTS 16
+#define MOCK_STORAGE_KEY_LEN 32
+
+static struct {
+    char key[MOCK_STORAGE_KEY_LEN];
+    char data[PLEXUS_JSON_BUFFER_SIZE];
+    size_t len;
+    bool used;
+} s_storage[MOCK_STORAGE_SLOTS];
+
+static int storage_find(const char* key) {
+    for (int i = 0; i < MOCK_STORAGE_SLOTS; i++) {
+        if (s_storage[i].used && strcmp(s_storage[i].key, key) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int storage_alloc(const char* key) {
+    /* Try to find existing entry first */
+    int idx = storage_find(key);
+    if (idx >= 0) return idx;
+
+    /* Find a free slot */
+    for (int i = 0; i < MOCK_STORAGE_SLOTS; i++) {
+        if (!s_storage[i].used) {
+            strncpy(s_storage[i].key, key, MOCK_STORAGE_KEY_LEN - 1);
+            s_storage[i].key[MOCK_STORAGE_KEY_LEN - 1] = '\0';
+            s_storage[i].used = true;
+            s_storage[i].len = 0;
+            return i;
+        }
+    }
+    return -1;
+}
+
+void mock_hal_storage_reset(void) {
+    memset(s_storage, 0, sizeof(s_storage));
+}
 
 plexus_err_t plexus_hal_storage_write(const char* key, const void* data, size_t len) {
-    (void)key;
-    if (len > sizeof(s_storage_data)) return PLEXUS_ERR_HAL;
-    memcpy(s_storage_data, data, len);
-    s_storage_len = len;
-    s_storage_has_data = true;
+    int idx = storage_alloc(key);
+    if (idx < 0) return PLEXUS_ERR_HAL;
+    if (len > sizeof(s_storage[idx].data)) return PLEXUS_ERR_HAL;
+    memcpy(s_storage[idx].data, data, len);
+    s_storage[idx].len = len;
     return PLEXUS_OK;
 }
 
 plexus_err_t plexus_hal_storage_read(const char* key, void* data, size_t max_len, size_t* out_len) {
-    (void)key;
-    if (!s_storage_has_data) {
+    int idx = storage_find(key);
+    if (idx < 0) {
         if (out_len) *out_len = 0;
         return PLEXUS_OK;  /* Key not found is not an error */
     }
-    size_t copy_len = s_storage_len < max_len ? s_storage_len : max_len;
-    memcpy(data, s_storage_data, copy_len);
+    size_t copy_len = s_storage[idx].len < max_len ? s_storage[idx].len : max_len;
+    memcpy(data, s_storage[idx].data, copy_len);
     if (out_len) *out_len = copy_len;
     return PLEXUS_OK;
 }
 
 plexus_err_t plexus_hal_storage_clear(const char* key) {
-    (void)key;
-    s_storage_has_data = false;
-    s_storage_len = 0;
+    int idx = storage_find(key);
+    if (idx >= 0) {
+        s_storage[idx].used = false;
+        s_storage[idx].len = 0;
+    }
     return PLEXUS_OK;
 }
-#endif
+
+#endif /* PLEXUS_ENABLE_PERSISTENT_BUFFER */
+
+/* ========================================================================= */
+/* Thread safety mock                                                        */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_THREAD_SAFE
+
+static int s_mutex_lock_count = 0;
+static int s_mutex_unlock_count = 0;
+
+int mock_hal_mutex_lock_count(void) { return s_mutex_lock_count; }
+int mock_hal_mutex_unlock_count(void) { return s_mutex_unlock_count; }
+
+void mock_hal_mutex_reset(void) {
+    s_mutex_lock_count = 0;
+    s_mutex_unlock_count = 0;
+}
+
+void* plexus_hal_mutex_create(void) {
+    return (void*)1; /* Non-NULL sentinel */
+}
+
+void plexus_hal_mutex_lock(void* mutex) {
+    (void)mutex;
+    s_mutex_lock_count++;
+}
+
+void plexus_hal_mutex_unlock(void* mutex) {
+    (void)mutex;
+    s_mutex_unlock_count++;
+}
+
+void plexus_hal_mutex_destroy(void* mutex) {
+    (void)mutex;
+}
+
+#endif /* PLEXUS_ENABLE_THREAD_SAFE */
+
+/* ========================================================================= */
+/* MQTT mock                                                                 */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_MQTT
+
+static bool s_mqtt_connected = false;
+static int s_mqtt_publish_count = 0;
+static char s_mqtt_last_topic[256] = {0};
+static char s_mqtt_last_payload[PLEXUS_JSON_BUFFER_SIZE] = {0};
+static size_t s_mqtt_last_payload_len = 0;
+static plexus_err_t s_mqtt_next_publish_result = PLEXUS_OK;
+static plexus_err_t s_mqtt_next_connect_result = PLEXUS_OK;
+
+void mock_hal_mqtt_reset(void) {
+    s_mqtt_connected = false;
+    s_mqtt_publish_count = 0;
+    s_mqtt_last_topic[0] = '\0';
+    s_mqtt_last_payload[0] = '\0';
+    s_mqtt_last_payload_len = 0;
+    s_mqtt_next_publish_result = PLEXUS_OK;
+    s_mqtt_next_connect_result = PLEXUS_OK;
+}
+
+void mock_hal_mqtt_set_connected(bool connected) {
+    s_mqtt_connected = connected;
+}
+
+void mock_hal_mqtt_set_next_connect_result(plexus_err_t err) {
+    s_mqtt_next_connect_result = err;
+}
+
+void mock_hal_mqtt_set_next_publish_result(plexus_err_t err) {
+    s_mqtt_next_publish_result = err;
+}
+
+int mock_hal_mqtt_publish_count(void) {
+    return s_mqtt_publish_count;
+}
+
+const char* mock_hal_mqtt_last_topic(void) {
+    return s_mqtt_last_topic;
+}
+
+const char* mock_hal_mqtt_last_payload(void) {
+    return s_mqtt_last_payload;
+}
+
+plexus_err_t plexus_hal_mqtt_connect(const char* broker_uri, const char* api_key,
+                                      const char* source_id) {
+    (void)broker_uri;
+    (void)api_key;
+    (void)source_id;
+    if (s_mqtt_next_connect_result == PLEXUS_OK) {
+        s_mqtt_connected = true;
+    }
+    return s_mqtt_next_connect_result;
+}
+
+plexus_err_t plexus_hal_mqtt_publish(const char* topic, const char* payload,
+                                      size_t payload_len, int qos) {
+    (void)qos;
+    s_mqtt_publish_count++;
+    if (topic) {
+        strncpy(s_mqtt_last_topic, topic, sizeof(s_mqtt_last_topic) - 1);
+    }
+    if (payload && payload_len > 0 && payload_len < sizeof(s_mqtt_last_payload)) {
+        memcpy(s_mqtt_last_payload, payload, payload_len);
+        s_mqtt_last_payload[payload_len] = '\0';
+        s_mqtt_last_payload_len = payload_len;
+    }
+    return s_mqtt_next_publish_result;
+}
+
+bool plexus_hal_mqtt_is_connected(void) {
+    return s_mqtt_connected;
+}
+
+void plexus_hal_mqtt_disconnect(void) {
+    s_mqtt_connected = false;
+}
+
+#if PLEXUS_ENABLE_COMMANDS
+plexus_err_t plexus_hal_mqtt_subscribe(const char* topic, int qos) {
+    (void)topic;
+    (void)qos;
+    return PLEXUS_OK;
+}
+
+plexus_err_t plexus_hal_mqtt_receive(char* buf, size_t buf_size, size_t* msg_len) {
+    (void)buf;
+    (void)buf_size;
+    if (msg_len) *msg_len = 0;
+    return PLEXUS_OK;
+}
+#endif /* PLEXUS_ENABLE_COMMANDS */
+
+#endif /* PLEXUS_ENABLE_MQTT */
