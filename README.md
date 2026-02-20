@@ -167,45 +167,45 @@ if (err != PLEXUS_OK) {
 }
 ```
 
-| Code | Meaning |
-|------|---------|
-| `PLEXUS_OK` | Success |
+| Code                     | Meaning                                                     |
+| ------------------------ | ----------------------------------------------------------- |
+| `PLEXUS_OK`              | Success                                                     |
 | `PLEXUS_ERR_BUFFER_FULL` | Metric buffer full — flush or increase `PLEXUS_MAX_METRICS` |
-| `PLEXUS_ERR_NETWORK` | Connection failed — metrics stay in buffer for retry |
-| `PLEXUS_ERR_AUTH` | Bad API key (401) — no retry |
-| `PLEXUS_ERR_RATE_LIMIT` | Throttled (429) — auto-cooldown, retries after 30s |
-| `PLEXUS_ERR_SERVER` | Server error (5xx) — retried with backoff |
+| `PLEXUS_ERR_NETWORK`     | Connection failed — metrics stay in buffer for retry        |
+| `PLEXUS_ERR_AUTH`        | Bad API key (401) — no retry                                |
+| `PLEXUS_ERR_RATE_LIMIT`  | Throttled (429) — auto-cooldown, retries after 30s          |
+| `PLEXUS_ERR_SERVER`      | Server error (5xx) — retried with backoff                   |
 
 ## Configuration
 
 Override via compiler flags (`-DPLEXUS_MAX_METRICS=8`) or before including `plexus.h`:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `PLEXUS_MAX_METRICS` | 32 | Max metrics per flush |
-| `PLEXUS_JSON_BUFFER_SIZE` | 2048 | JSON serialization buffer |
-| `PLEXUS_MAX_RETRIES` | 3 | Retry count on failure |
-| `PLEXUS_AUTO_FLUSH_COUNT` | 16 | Auto-flush after N metrics |
-| `PLEXUS_AUTO_FLUSH_INTERVAL_MS` | 5000 | Auto-flush interval (0=disabled) |
-| `PLEXUS_ENABLE_TAGS` | 1 | Metric tags support |
-| `PLEXUS_ENABLE_STRING_VALUES` | 1 | String value support |
-| `PLEXUS_ENABLE_BOOL_VALUES` | 1 | Boolean value support |
-| `PLEXUS_ENABLE_PERSISTENT_BUFFER` | 0 | Flash-backed buffer for unsent data |
-| `PLEXUS_ENABLE_COMMANDS` | 0 | Remote shell command execution |
-| `PLEXUS_ENABLE_TYPED_COMMANDS` | 0 | Typed commands with parameter schemas |
-| `PLEXUS_ENABLE_HEARTBEAT` | 0 | Device heartbeat with metric registry |
-| `PLEXUS_ENABLE_AUTO_REGISTER` | 0 | Auto-register device on first connect |
-| `PLEXUS_ENABLE_SENSOR_DISCOVERY` | 0 | I2C sensor auto-detection |
-| `PLEXUS_SENSOR_BME280` | 0 | Compile BME280 driver |
-| `PLEXUS_SENSOR_MPU6050` | 0 | Compile MPU6050 driver |
-| `PLEXUS_SENSOR_INA219` | 0 | Compile INA219 driver |
-| `PLEXUS_SENSOR_ADS1115` | 0 | Compile ADS1115 driver |
-| `PLEXUS_SENSOR_SHT3X` | 0 | Compile SHT3x driver |
-| `PLEXUS_SENSOR_BH1750` | 0 | Compile BH1750 driver |
-| `PLEXUS_SENSOR_VL53L0X` | 0 | Compile VL53L0X driver |
-| `PLEXUS_SENSOR_QMC5883L` | 0 | Compile QMC5883L driver |
-| `PLEXUS_SENSOR_HMC5883L` | 0 | Compile HMC5883L driver |
-| `PLEXUS_DEBUG` | 0 | Debug logging |
+| Option                            | Default | Description                           |
+| --------------------------------- | ------- | ------------------------------------- |
+| `PLEXUS_MAX_METRICS`              | 32      | Max metrics per flush                 |
+| `PLEXUS_JSON_BUFFER_SIZE`         | 2048    | JSON serialization buffer             |
+| `PLEXUS_MAX_RETRIES`              | 3       | Retry count on failure                |
+| `PLEXUS_AUTO_FLUSH_COUNT`         | 16      | Auto-flush after N metrics            |
+| `PLEXUS_AUTO_FLUSH_INTERVAL_MS`   | 5000    | Auto-flush interval (0=disabled)      |
+| `PLEXUS_ENABLE_TAGS`              | 1       | Metric tags support                   |
+| `PLEXUS_ENABLE_STRING_VALUES`     | 1       | String value support                  |
+| `PLEXUS_ENABLE_BOOL_VALUES`       | 1       | Boolean value support                 |
+| `PLEXUS_ENABLE_PERSISTENT_BUFFER` | 0       | Flash-backed buffer for unsent data   |
+| `PLEXUS_ENABLE_COMMANDS`          | 0       | Remote shell command execution        |
+| `PLEXUS_ENABLE_TYPED_COMMANDS`    | 0       | Typed commands with parameter schemas |
+| `PLEXUS_ENABLE_HEARTBEAT`         | 0       | Device heartbeat with metric registry |
+| `PLEXUS_ENABLE_AUTO_REGISTER`     | 0       | Auto-register device on first connect |
+| `PLEXUS_ENABLE_SENSOR_DISCOVERY`  | 0       | I2C sensor auto-detection             |
+| `PLEXUS_SENSOR_BME280`            | 0       | Compile BME280 driver                 |
+| `PLEXUS_SENSOR_MPU6050`           | 0       | Compile MPU6050 driver                |
+| `PLEXUS_SENSOR_INA219`            | 0       | Compile INA219 driver                 |
+| `PLEXUS_SENSOR_ADS1115`           | 0       | Compile ADS1115 driver                |
+| `PLEXUS_SENSOR_SHT3X`             | 0       | Compile SHT3x driver                  |
+| `PLEXUS_SENSOR_BH1750`            | 0       | Compile BH1750 driver                 |
+| `PLEXUS_SENSOR_VL53L0X`           | 0       | Compile VL53L0X driver                |
+| `PLEXUS_SENSOR_QMC5883L`          | 0       | Compile QMC5883L driver               |
+| `PLEXUS_SENSOR_HMC5883L`          | 0       | Compile HMC5883L driver               |
+| `PLEXUS_DEBUG`                    | 0       | Debug logging                         |
 
 ### Minimal config (~1.5KB RAM)
 
@@ -291,20 +291,20 @@ See `examples/esp32_autodiscovery/` for a complete example with auto-registratio
 
 ## Memory
 
-| Config | RAM per client |
-|--------|---------------|
-| Default (all features, 32 metrics) | ~17KB |
-| Minimal (numbers only, 8 metrics) | ~1.5KB |
+| Config                             | RAM per client |
+| ---------------------------------- | -------------- |
+| Default (all features, 32 metrics) | ~17KB          |
+| Minimal (numbers only, 8 metrics)  | ~1.5KB         |
 
 Use `plexus_client_size()` or `sizeof(plexus_client_t)` to get the exact size for your build.
 
 ## Platform Support
 
-| Platform | TLS | Timestamps | Notes |
-|----------|-----|-----------|-------|
-| **ESP32 (ESP-IDF)** | HTTPS | NTP via SNTP | Full support, production-ready |
-| **ESP32/ESP8266 (Arduino)** | HTTPS (no cert verify) | `gettimeofday` | Add `setCACert()` for production |
-| **STM32 (LwIP)** | HTTP only | RTC | Requires mbedTLS for HTTPS — see `hal/stm32` header |
+| Platform                    | TLS                    | Timestamps     | Notes                                               |
+| --------------------------- | ---------------------- | -------------- | --------------------------------------------------- |
+| **ESP32 (ESP-IDF)**         | HTTPS                  | NTP via SNTP   | Full support, production-ready                      |
+| **ESP32/ESP8266 (Arduino)** | HTTPS (no cert verify) | `gettimeofday` | Add `setCACert()` for production                    |
+| **STM32 (LwIP)**            | HTTP only              | RTC            | Requires mbedTLS for HTTPS — see `hal/stm32` header |
 
 ### STM32 peripheral config
 
@@ -341,14 +341,14 @@ Copy `hal/template/plexus_hal_template.c` and implement the HAL functions. See t
 
 ## Why Plexus?
 
-| | Plexus C SDK | Raw MQTT | ThingsBoard SDK | AWS IoT SDK |
-|---|---|---|---|---|
-| **RAM** | ~1.5KB min | ~10KB+ | ~50KB+ | ~30KB+ |
-| **Dependencies** | None | MQTT lib | MQTT + cJSON | mbedTLS + MQTT |
-| **Auth** | API key header | Broker creds | Device token | mTLS certs |
-| **Protocol** | HTTP(S) | MQTT persistent | MQTT persistent | MQTT + mTLS |
-| **Persistent buffer** | Built-in | Manual | Manual | Manual |
-| **Setup** | 3 lines of code | Broker + subscriber + DB + UI | Self-host or cloud | IoT Core + provisioning |
+|                       | Plexus C SDK    | Raw MQTT                      | ThingsBoard SDK    | AWS IoT SDK             |
+| --------------------- | --------------- | ----------------------------- | ------------------ | ----------------------- |
+| **RAM**               | ~1.5KB min      | ~10KB+                        | ~50KB+             | ~30KB+                  |
+| **Dependencies**      | None            | MQTT lib                      | MQTT + cJSON       | mbedTLS + MQTT          |
+| **Auth**              | API key header  | Broker creds                  | Device token       | mTLS certs              |
+| **Protocol**          | HTTP(S)         | MQTT persistent               | MQTT persistent    | MQTT + mTLS             |
+| **Persistent buffer** | Built-in        | Manual                        | Manual             | Manual                  |
+| **Setup**             | 3 lines of code | Broker + subscriber + DB + UI | Self-host or cloud | IoT Core + provisioning |
 
 ## License
 

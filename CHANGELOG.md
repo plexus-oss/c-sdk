@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-19
+
+### Fixed
+
+- **Zero-size array compile error** — `s_builtin_sensors[]` in `plexus_sensors.c` failed to compile when no `PLEXUS_SENSOR_*` flags were enabled; added NULL sentinel so the array is never empty
+- **STM32 HAL missing LwIP headers** — `plexus_hal_stm32.c` now uses `__has_include` to detect LwIP availability and provides stub implementations when absent, fixing PlatformIO CI builds on boards without LwIP middleware
+- **`warn_unused_result` warnings in STM32 example** — added `(void)` casts for `plexus_set_endpoint`, `plexus_set_flush_interval`, `plexus_send`, and `plexus_send_bool` calls
+- **test_sensors build flags** — added missing `-DPLEXUS_SENSOR_BME280=1 -DPLEXUS_SENSOR_MPU6050=1` to CMake test target so sensor detection tests actually run
+
+### Removed
+
+- `publish.yml` workflow — SDK is distributed via the frontend dashboard, not package registries
+- `idf_component.yml` — ESP-IDF Component Registry manifest (no longer publishing there)
+
 ## [0.3.0] - 2026-02-19
 
 ### Breaking
@@ -148,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow: host tests + PlatformIO cross-compilation for ESP32, ESP8266, STM32
 - Examples: ESP32 ESP-IDF, Arduino basic, STM32 FreeRTOS
 
+[0.4.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.4.0
 [0.3.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.3.0
 [0.2.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.2.1
 [0.2.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.2.0

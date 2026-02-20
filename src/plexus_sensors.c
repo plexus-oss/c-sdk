@@ -565,8 +565,9 @@ static const plexus_sensor_descriptor_t* const s_builtin_sensors[] = {
 #if PLEXUS_SENSOR_HMC5883L
     &s_hmc5883l_descriptor,
 #endif
+    NULL /* sentinel — ensures array is never zero-size */
 };
-#define BUILTIN_SENSOR_COUNT (sizeof(s_builtin_sensors) / sizeof(s_builtin_sensors[0]))
+#define BUILTIN_SENSOR_COUNT (sizeof(s_builtin_sensors) / sizeof(s_builtin_sensors[0]) - 1)
 
 /* Custom sensor registry */
 static const plexus_sensor_descriptor_t* s_custom_sensors[PLEXUS_MAX_CUSTOM_SENSORS];

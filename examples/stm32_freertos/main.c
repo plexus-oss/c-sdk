@@ -132,10 +132,10 @@ static void telemetry_loop(void) {
     }
 
     /* Use HTTP endpoint (STM32 HAL is HTTP-only) */
-    plexus_set_endpoint(client, PLEXUS_HTTP_ENDPOINT);
+    (void)plexus_set_endpoint(client, PLEXUS_HTTP_ENDPOINT);
 
     /* Configure flush behavior */
-    plexus_set_flush_interval(client, TELEMETRY_INTERVAL_MS);
+    (void)plexus_set_flush_interval(client, TELEMETRY_INTERVAL_MS);
 
     printf("Starting telemetry loop (interval: %dms)\r\n", TELEMETRY_INTERVAL_MS);
 
@@ -148,10 +148,10 @@ static void telemetry_loop(void) {
                temp, pressure, alarm);
 
         /* Queue metrics */
-        plexus_send(client, "temperature", (double)temp);
-        plexus_send(client, "pressure", (double)pressure);
+        (void)plexus_send(client, "temperature", (double)temp);
+        (void)plexus_send(client, "pressure", (double)pressure);
 #if PLEXUS_ENABLE_BOOL_VALUES
-        plexus_send_bool(client, "alarm", alarm != 0);
+        (void)plexus_send_bool(client, "alarm", alarm != 0);
 #endif
 
         /* Let plexus_tick() handle time-based auto-flush */

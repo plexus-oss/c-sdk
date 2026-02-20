@@ -162,7 +162,7 @@ add_executable(test_sensors
 )
 target_include_directories(test_sensors PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
 target_compile_features(test_sensors PRIVATE c_std_99)
-target_compile_options(test_sensors PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_SENSOR_DISCOVERY=1 -DPLEXUS_ENABLE_HEARTBEAT=1)
+target_compile_options(test_sensors PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_SENSOR_DISCOVERY=1 -DPLEXUS_ENABLE_HEARTBEAT=1 -DPLEXUS_SENSOR_BME280=1 -DPLEXUS_SENSOR_MPU6050=1)
 target_link_options(test_sensors PRIVATE ${SANITIZER_FLAGS})
 target_link_libraries(test_sensors PRIVATE m)
 

@@ -69,10 +69,17 @@
     #define PLEXUS_HAS_FREERTOS 0
 #endif
 
-/* LwIP headers */
-#include "lwip/sockets.h"
-#include "lwip/netdb.h"
-#include "lwip/dns.h"
+/* LwIP headers — required for networking.
+ * If LwIP is not available in your BSP, enable it in CubeMX or provide
+ * lwipopts.h.  Without it, this HAL compiles but stubs return errors. */
+#if __has_include("lwip/sockets.h")
+    #include "lwip/sockets.h"
+    #include "lwip/netdb.h"
+    #include "lwip/dns.h"
+    #define PLEXUS_HAS_LWIP 1
+#else
+    #define PLEXUS_HAS_LWIP 0
+#endif
 
 /* HTTP header buffer must fit: method + path + host + api_key + user-agent + fixed text.
  * Worst case: ~140 bytes fixed text + path(256) + host(128) + api_key(128) + UA(~30) = ~682.
@@ -92,6 +99,7 @@
 extern UART_HandleTypeDef PLEXUS_STM32_DEBUG_UART;
 extern RTC_HandleTypeDef PLEXUS_STM32_RTC;
 
+#if PLEXUS_HAS_LWIP
 /* ------------------------------------------------------------------------- */
 /* Internal helpers                                                          */
 /* ------------------------------------------------------------------------- */
@@ -543,6 +551,40 @@ cleanup:
 }
 
 #endif /* PLEXUS_ENABLE_COMMANDS */
+
+#else /* !PLEXUS_HAS_LWIP */
+
+/* Stubs when LwIP is not available — compile succeeds, calls return error */
+plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
+                                   const char* user_agent,
+                                   const char* body, size_t body_len) {
+    (void)url; (void)api_key; (void)user_agent; (void)body; (void)body_len;
+    return PLEXUS_ERR_NETWORK;
+}
+
+#if PLEXUS_ENABLE_AUTO_REGISTER
+plexus_err_t plexus_hal_http_post_response(
+    const char* url, const char* api_key, const char* user_agent,
+    const char* body, size_t body_len,
+    char* response_buf, size_t response_buf_size, size_t* response_len) {
+    (void)url; (void)api_key; (void)user_agent; (void)body; (void)body_len;
+    (void)response_buf; (void)response_buf_size; (void)response_len;
+    return PLEXUS_ERR_NETWORK;
+}
+#endif
+
+#if PLEXUS_ENABLE_COMMANDS
+plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
+                                  const char* user_agent,
+                                  char* response_buf, size_t response_buf_size,
+                                  size_t* response_len) {
+    (void)url; (void)api_key; (void)user_agent;
+    (void)response_buf; (void)response_buf_size; (void)response_len;
+    return PLEXUS_ERR_NETWORK;
+}
+#endif
+
+#endif /* PLEXUS_HAS_LWIP */
 
 uint64_t plexus_hal_get_time_ms(void) {
 #ifdef HAL_RTC_MODULE_ENABLED
