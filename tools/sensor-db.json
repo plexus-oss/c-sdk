@@ -1,0 +1,1137 @@
+{
+  "version": "1.0.0",
+  "description": "I2C sensor address database for AI-powered sensor identification in the Plexus dashboard",
+  "sensors": {
+    "0x1E": {
+      "candidates": [
+        {
+          "name": "HMC5883L",
+          "manufacturer": "Honeywell",
+          "description": "3-axis magnetometer",
+          "metrics": [
+            "mag_x",
+            "mag_y",
+            "mag_z"
+          ],
+          "whoami_reg": "0x0A",
+          "whoami_value": "0x48",
+          "init_sequence": "Set continuous measurement mode (reg 0x02=0x00), 8-average 15Hz (reg 0x00=0x70)",
+          "read_registers": {
+            "mag_x": "0x03-0x04",
+            "mag_z": "0x05-0x06",
+            "mag_y": "0x07-0x08"
+          },
+          "libraries": {
+            "arduino": "Adafruit_HMC5883_Unified",
+            "esp-idf": "esp-idf-lib/hmc5883l"
+          }
+        },
+        {
+          "name": "QMC5883L",
+          "manufacturer": "QST Corporation",
+          "description": "3-axis magnetometer",
+          "metrics": [
+            "mag_x",
+            "mag_y",
+            "mag_z"
+          ],
+          "whoami_reg": "0x0D",
+          "whoami_value": "0xFF",
+          "init_sequence": "Set continuous mode, 200Hz, 8G range, 512 OSR (reg 0x09=0x1D)",
+          "read_registers": {
+            "mag_x": "0x00-0x01",
+            "mag_y": "0x02-0x03",
+            "mag_z": "0x04-0x05"
+          },
+          "libraries": {
+            "arduino": "QMC5883LCompass",
+            "esp-idf": "esp-idf-lib/qmc5883l"
+          },
+          "disambiguation": "Read 0x0D: if 0xFF → QMC5883L. Read 0x0A: if 0x48 → HMC5883L."
+        }
+      ]
+    },
+    "0x20": {
+      "candidates": [
+        {
+          "name": "PCF8574",
+          "manufacturer": "NXP/TI",
+          "description": "8-bit I/O expander",
+          "metrics": [],
+          "whoami_reg": null,
+          "address_range": "0x20-0x27",
+          "disambiguation": "No chip ID register. PCF8574 uses 0x20-0x27, MCP23017 also uses 0x20-0x27. If 16 GPIOs, likely MCP23017; if 8, PCF8574."
+        },
+        {
+          "name": "MCP23017",
+          "manufacturer": "Microchip",
+          "description": "16-bit I/O expander",
+          "metrics": [],
+          "whoami_reg": null,
+          "address_range": "0x20-0x27",
+          "libraries": {
+            "arduino": "Adafruit_MCP23X17",
+            "esp-idf": "esp-idf-lib/mcp23x17"
+          },
+          "disambiguation": "No chip ID register. Try reading register 0x05 (IOCON) — if readable and returns valid config byte, likely MCP23017."
+        }
+      ]
+    },
+    "0x21": {
+      "candidates": [
+        {
+          "name": "PCF8574",
+          "manufacturer": "NXP/TI",
+          "description": "8-bit I/O expander (A0=1)",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "MCP23017",
+          "manufacturer": "Microchip",
+          "description": "16-bit I/O expander (A0=1)",
+          "metrics": [],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x22": {
+      "candidates": [
+        {
+          "name": "PCF8574",
+          "manufacturer": "NXP/TI",
+          "description": "8-bit I/O expander (A1=1)",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "MCP23017",
+          "manufacturer": "Microchip",
+          "description": "16-bit I/O expander (A1=1)",
+          "metrics": [],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x23": {
+      "candidates": [
+        {
+          "name": "PCF8574",
+          "manufacturer": "NXP/TI",
+          "description": "8-bit I/O expander (A0+A1=1)",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "MCP23017",
+          "manufacturer": "Microchip",
+          "description": "16-bit I/O expander (A0+A1=1)",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "BH1750",
+          "manufacturer": "ROHM",
+          "description": "Ambient light sensor (ADDR=H)",
+          "metrics": [
+            "light_lux"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "Power on (cmd 0x01), set continuous high-res mode (cmd 0x10)",
+          "libraries": {
+            "arduino": "BH1750",
+            "esp-idf": "esp-idf-lib/bh1750"
+          }
+        }
+      ]
+    },
+    "0x24": {
+      "candidates": [
+        {
+          "name": "PCF8574",
+          "manufacturer": "NXP/TI",
+          "description": "8-bit I/O expander (A2=1)",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "MCP23017",
+          "manufacturer": "Microchip",
+          "description": "16-bit I/O expander (A2=1)",
+          "metrics": [],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x25": {
+      "candidates": [
+        {
+          "name": "PCF8574",
+          "manufacturer": "NXP/TI",
+          "description": "8-bit I/O expander",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "MCP23017",
+          "manufacturer": "Microchip",
+          "description": "16-bit I/O expander",
+          "metrics": [],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x26": {
+      "candidates": [
+        {
+          "name": "PCF8574",
+          "manufacturer": "NXP/TI",
+          "description": "8-bit I/O expander",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "MCP23017",
+          "manufacturer": "Microchip",
+          "description": "16-bit I/O expander",
+          "metrics": [],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x27": {
+      "candidates": [
+        {
+          "name": "PCF8574",
+          "manufacturer": "NXP/TI",
+          "description": "8-bit I/O expander (all addr bits high)",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "MCP23017",
+          "manufacturer": "Microchip",
+          "description": "16-bit I/O expander (all addr bits high)",
+          "metrics": [],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x29": {
+      "candidates": [
+        {
+          "name": "VL53L0X",
+          "manufacturer": "STMicroelectronics",
+          "description": "Time-of-flight distance sensor",
+          "metrics": [
+            "distance_mm"
+          ],
+          "whoami_reg": "0xC0",
+          "whoami_value": "0xEE",
+          "init_sequence": "Complex init sequence — use library. Set measurement timing budget.",
+          "libraries": {
+            "arduino": "Adafruit_VL53L0X",
+            "esp-idf": "esp-idf-lib/vl53l0x"
+          }
+        },
+        {
+          "name": "TSL2591",
+          "manufacturer": "ams-OSRAM",
+          "description": "High dynamic range light sensor",
+          "metrics": [
+            "light_lux",
+            "light_ir",
+            "light_visible"
+          ],
+          "whoami_reg": "0x12",
+          "whoami_value": "0x50",
+          "init_sequence": "Enable (reg 0x00=0x03), set gain and integration time (reg 0x01)",
+          "libraries": {
+            "arduino": "Adafruit_TSL2591",
+            "esp-idf": null
+          },
+          "disambiguation": "Read 0xC0: if 0xEE → VL53L0X. Read 0x12: if 0x50 → TSL2591."
+        }
+      ]
+    },
+    "0x38": {
+      "candidates": [
+        {
+          "name": "AHT20",
+          "manufacturer": "ASAIR",
+          "description": "Temperature and humidity sensor",
+          "metrics": [
+            "temperature",
+            "humidity"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "Send init command 0xBE with params [0x08, 0x00], wait 10ms",
+          "read_registers": {
+            "trigger": "0xAC with params [0x33, 0x00]"
+          },
+          "libraries": {
+            "arduino": "Adafruit_AHTX0",
+            "esp-idf": "esp-idf-lib/aht"
+          }
+        },
+        {
+          "name": "FT6236",
+          "manufacturer": "FocalTech",
+          "description": "Capacitive touch controller",
+          "metrics": [
+            "touch_x",
+            "touch_y",
+            "touch_points"
+          ],
+          "whoami_reg": "0xA8",
+          "whoami_value": "0x11",
+          "libraries": {
+            "arduino": "Adafruit_FT6206",
+            "esp-idf": null
+          },
+          "disambiguation": "Try reading register 0xA8 — if it returns a vendor ID, it's FT6236. AHT20 responds to command 0x71 with status byte."
+        }
+      ]
+    },
+    "0x39": {
+      "candidates": [
+        {
+          "name": "APDS-9960",
+          "manufacturer": "Broadcom",
+          "description": "Gesture, proximity, ambient light, and color sensor",
+          "metrics": [
+            "gesture",
+            "proximity",
+            "light_r",
+            "light_g",
+            "light_b",
+            "light_ambient"
+          ],
+          "whoami_reg": "0x92",
+          "whoami_value": "0xAB",
+          "init_sequence": "Enable (reg 0x80=0x0F for all engines), set gain and timing registers",
+          "libraries": {
+            "arduino": "Adafruit_APDS9960",
+            "esp-idf": "esp-idf-lib/apds9960"
+          }
+        }
+      ]
+    },
+    "0x3C": {
+      "candidates": [
+        {
+          "name": "SSD1306",
+          "manufacturer": "Solomon Systech",
+          "description": "128x64 OLED display",
+          "metrics": [],
+          "whoami_reg": null,
+          "libraries": {
+            "arduino": "Adafruit_SSD1306",
+            "esp-idf": "esp-idf-lib/ssd1306"
+          },
+          "disambiguation": "Displays are not telemetry sensors but are commonly found on I2C scans. SSD1306 and SH1106 share address 0x3C. SH1106 uses page addressing by default."
+        },
+        {
+          "name": "SH1106",
+          "manufacturer": "Sino Wealth",
+          "description": "132x64 OLED display",
+          "metrics": [],
+          "whoami_reg": null,
+          "libraries": {
+            "arduino": "Adafruit_SH110X",
+            "esp-idf": null
+          }
+        }
+      ]
+    },
+    "0x3D": {
+      "candidates": [
+        {
+          "name": "SSD1306",
+          "manufacturer": "Solomon Systech",
+          "description": "128x64 OLED display (alt address)",
+          "metrics": [],
+          "whoami_reg": null,
+          "libraries": {
+            "arduino": "Adafruit_SSD1306",
+            "esp-idf": "esp-idf-lib/ssd1306"
+          }
+        },
+        {
+          "name": "SH1106",
+          "manufacturer": "Sino Wealth",
+          "description": "132x64 OLED display (alt address)",
+          "metrics": [],
+          "whoami_reg": null,
+          "libraries": {
+            "arduino": "Adafruit_SH110X",
+            "esp-idf": null
+          }
+        }
+      ]
+    },
+    "0x40": {
+      "candidates": [
+        {
+          "name": "INA219",
+          "manufacturer": "Texas Instruments",
+          "description": "Current and power monitor",
+          "metrics": [
+            "bus_voltage",
+            "shunt_voltage",
+            "current_ma",
+            "power_mw"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "Reset (reg 0x00=0x8000), configure (reg 0x00 with bus/shunt voltage range, gain, ADC settings). Calibration register 0x05.",
+          "read_registers": {
+            "shunt_voltage": "0x01",
+            "bus_voltage": "0x02",
+            "power": "0x03",
+            "current": "0x04"
+          },
+          "libraries": {
+            "arduino": "Adafruit_INA219",
+            "esp-idf": "esp-idf-lib/ina219"
+          },
+          "disambiguation": "INA219 config register (0x00) resets to 0x399F. HDC1080 manufacturer ID at 0xFE = 0x5449. SHT40 responds to command 0xFD."
+        },
+        {
+          "name": "HDC1080",
+          "manufacturer": "Texas Instruments",
+          "description": "Temperature and humidity sensor",
+          "metrics": [
+            "temperature",
+            "humidity"
+          ],
+          "whoami_reg": "0xFF",
+          "whoami_value": "0x1050",
+          "init_sequence": "Configure (reg 0x02=0x1000 for 14-bit both), trigger measurement by reading reg 0x00",
+          "libraries": {
+            "arduino": "Adafruit_HDC1000",
+            "esp-idf": "esp-idf-lib/hdc1080"
+          }
+        },
+        {
+          "name": "SHT40",
+          "manufacturer": "Sensirion",
+          "description": "Temperature and humidity sensor",
+          "metrics": [
+            "temperature",
+            "humidity"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "Send measurement command 0xFD (high precision), wait 10ms, read 6 bytes",
+          "libraries": {
+            "arduino": "Adafruit_SHT4x",
+            "esp-idf": "esp-idf-lib/sht4x"
+          },
+          "disambiguation": "SHT40 uses command-based protocol (no registers). Send 0x89 for serial number to verify."
+        }
+      ]
+    },
+    "0x44": {
+      "candidates": [
+        {
+          "name": "SHT30",
+          "manufacturer": "Sensirion",
+          "description": "Temperature and humidity sensor",
+          "metrics": [
+            "temperature",
+            "humidity"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "Send measurement command [0x24, 0x00] (high repeatability), wait 15ms",
+          "libraries": {
+            "arduino": "Adafruit_SHT31",
+            "esp-idf": "esp-idf-lib/sht3x"
+          }
+        },
+        {
+          "name": "SHT31",
+          "manufacturer": "Sensirion",
+          "description": "Temperature and humidity sensor (higher accuracy)",
+          "metrics": [
+            "temperature",
+            "humidity"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "Send measurement command [0x24, 0x00] (high repeatability), wait 15ms",
+          "libraries": {
+            "arduino": "Adafruit_SHT31",
+            "esp-idf": "esp-idf-lib/sht3x"
+          },
+          "disambiguation": "SHT30 and SHT31 are software-compatible. SHT31 has tighter accuracy specs. Same library works for both. Read serial number with [0x37, 0x80] to distinguish."
+        }
+      ]
+    },
+    "0x48": {
+      "candidates": [
+        {
+          "name": "ADS1115",
+          "manufacturer": "Texas Instruments",
+          "description": "16-bit 4-channel ADC",
+          "metrics": [
+            "adc_ch0",
+            "adc_ch1",
+            "adc_ch2",
+            "adc_ch3"
+          ],
+          "whoami_reg": null,
+          "address_range": "0x48-0x4B",
+          "init_sequence": "Write config register (0x01) with MUX, gain, mode, data rate settings. Read conversion from 0x00.",
+          "read_registers": {
+            "conversion": "0x00",
+            "config": "0x01"
+          },
+          "libraries": {
+            "arduino": "Adafruit_ADS1X15",
+            "esp-idf": "esp-idf-lib/ads111x"
+          }
+        },
+        {
+          "name": "ADS1015",
+          "manufacturer": "Texas Instruments",
+          "description": "12-bit 4-channel ADC",
+          "metrics": [
+            "adc_ch0",
+            "adc_ch1",
+            "adc_ch2",
+            "adc_ch3"
+          ],
+          "whoami_reg": null,
+          "address_range": "0x48-0x4B",
+          "libraries": {
+            "arduino": "Adafruit_ADS1X15",
+            "esp-idf": "esp-idf-lib/ads111x"
+          },
+          "disambiguation": "ADS1015 and ADS1115 are register-compatible. ADS1015 is 12-bit (faster), ADS1115 is 16-bit. Same library handles both."
+        },
+        {
+          "name": "TMP102",
+          "manufacturer": "Texas Instruments",
+          "description": "Digital temperature sensor",
+          "metrics": [
+            "temperature"
+          ],
+          "whoami_reg": null,
+          "address_range": "0x48-0x4B",
+          "init_sequence": "Default config is fine. Read temperature from register 0x00 (2 bytes, 12-bit).",
+          "read_registers": {
+            "temperature": "0x00",
+            "config": "0x01"
+          },
+          "libraries": {
+            "arduino": "SparkFun_TMP102",
+            "esp-idf": null
+          },
+          "disambiguation": "TMP102 config register (0x01) has different default value than ADS1x15. TMP102 default config = 0x60A0."
+        }
+      ]
+    },
+    "0x49": {
+      "candidates": [
+        {
+          "name": "ADS1115",
+          "manufacturer": "Texas Instruments",
+          "description": "16-bit ADC (ADDR=VDD)",
+          "metrics": [
+            "adc_ch0",
+            "adc_ch1",
+            "adc_ch2",
+            "adc_ch3"
+          ],
+          "whoami_reg": null
+        },
+        {
+          "name": "ADS1015",
+          "manufacturer": "Texas Instruments",
+          "description": "12-bit ADC (ADDR=VDD)",
+          "metrics": [
+            "adc_ch0",
+            "adc_ch1",
+            "adc_ch2",
+            "adc_ch3"
+          ],
+          "whoami_reg": null
+        },
+        {
+          "name": "TMP102",
+          "manufacturer": "Texas Instruments",
+          "description": "Temperature sensor (A0=VDD)",
+          "metrics": [
+            "temperature"
+          ],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x4A": {
+      "candidates": [
+        {
+          "name": "ADS1115",
+          "manufacturer": "Texas Instruments",
+          "description": "16-bit ADC (ADDR=SDA)",
+          "metrics": [
+            "adc_ch0",
+            "adc_ch1",
+            "adc_ch2",
+            "adc_ch3"
+          ],
+          "whoami_reg": null
+        },
+        {
+          "name": "ADS1015",
+          "manufacturer": "Texas Instruments",
+          "description": "12-bit ADC (ADDR=SDA)",
+          "metrics": [
+            "adc_ch0",
+            "adc_ch1",
+            "adc_ch2",
+            "adc_ch3"
+          ],
+          "whoami_reg": null
+        },
+        {
+          "name": "TMP102",
+          "manufacturer": "Texas Instruments",
+          "description": "Temperature sensor (A0=SDA)",
+          "metrics": [
+            "temperature"
+          ],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x4B": {
+      "candidates": [
+        {
+          "name": "ADS1115",
+          "manufacturer": "Texas Instruments",
+          "description": "16-bit ADC (ADDR=SCL)",
+          "metrics": [
+            "adc_ch0",
+            "adc_ch1",
+            "adc_ch2",
+            "adc_ch3"
+          ],
+          "whoami_reg": null
+        },
+        {
+          "name": "ADS1015",
+          "manufacturer": "Texas Instruments",
+          "description": "12-bit ADC (ADDR=SCL)",
+          "metrics": [
+            "adc_ch0",
+            "adc_ch1",
+            "adc_ch2",
+            "adc_ch3"
+          ],
+          "whoami_reg": null
+        },
+        {
+          "name": "TMP102",
+          "manufacturer": "Texas Instruments",
+          "description": "Temperature sensor (A0=SCL)",
+          "metrics": [
+            "temperature"
+          ],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x50": {
+      "candidates": [
+        {
+          "name": "AT24C32",
+          "manufacturer": "Atmel/Microchip",
+          "description": "32Kbit EEPROM",
+          "metrics": [],
+          "whoami_reg": null,
+          "address_range": "0x50-0x57",
+          "libraries": {
+            "arduino": "Wire (built-in)",
+            "esp-idf": null
+          },
+          "disambiguation": "EEPROM devices share 0x50-0x57. AT24C32 = 4KB, AT24C256 = 32KB. Not telemetry sensors — commonly found on DS3231 RTC modules."
+        },
+        {
+          "name": "AT24C256",
+          "manufacturer": "Atmel/Microchip",
+          "description": "256Kbit EEPROM",
+          "metrics": [],
+          "whoami_reg": null,
+          "address_range": "0x50-0x57"
+        }
+      ]
+    },
+    "0x51": {
+      "candidates": [
+        {
+          "name": "AT24C32",
+          "manufacturer": "Atmel/Microchip",
+          "description": "32Kbit EEPROM (A0=1)",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "AT24C256",
+          "manufacturer": "Atmel/Microchip",
+          "description": "256Kbit EEPROM (A0=1)",
+          "metrics": [],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x52": {
+      "candidates": [
+        {
+          "name": "AT24C32",
+          "manufacturer": "Atmel/Microchip",
+          "description": "32Kbit EEPROM (A1=1)",
+          "metrics": [],
+          "whoami_reg": null
+        },
+        {
+          "name": "AT24C256",
+          "manufacturer": "Atmel/Microchip",
+          "description": "256Kbit EEPROM (A1=1)",
+          "metrics": [],
+          "whoami_reg": null
+        }
+      ]
+    },
+    "0x53": {
+      "candidates": [
+        {
+          "name": "ADXL345",
+          "manufacturer": "Analog Devices",
+          "description": "3-axis accelerometer",
+          "metrics": [
+            "accel_x",
+            "accel_y",
+            "accel_z"
+          ],
+          "whoami_reg": "0x00",
+          "whoami_value": "0xE5",
+          "init_sequence": "Set measurement mode (reg 0x2D=0x08), set data format (reg 0x31=0x0B for full resolution +-16g)",
+          "read_registers": {
+            "accel_x": "0x32-0x33",
+            "accel_y": "0x34-0x35",
+            "accel_z": "0x36-0x37"
+          },
+          "libraries": {
+            "arduino": "Adafruit_ADXL345",
+            "esp-idf": "esp-idf-lib/adxl345"
+          }
+        }
+      ]
+    },
+    "0x57": {
+      "candidates": [
+        {
+          "name": "MAX30102",
+          "manufacturer": "Maxim Integrated",
+          "description": "Pulse oximeter and heart rate sensor",
+          "metrics": [
+            "heart_rate",
+            "spo2",
+            "ir_value",
+            "red_value"
+          ],
+          "whoami_reg": "0xFF",
+          "whoami_value": "0x15",
+          "init_sequence": "Reset (reg 0x09=0x40), configure FIFO (reg 0x08), set SpO2 mode (reg 0x09=0x03), set LED pulse amplitude (regs 0x0C-0x0D)",
+          "libraries": {
+            "arduino": "SparkFun_MAX3010x",
+            "esp-idf": null
+          }
+        },
+        {
+          "name": "AT24C32",
+          "manufacturer": "Atmel/Microchip",
+          "description": "32Kbit EEPROM (all addr bits high)",
+          "metrics": [],
+          "whoami_reg": null,
+          "disambiguation": "Read register 0xFF — if it returns 0x15, it's MAX30102. EEPROM will return stored data."
+        }
+      ]
+    },
+    "0x5A": {
+      "candidates": [
+        {
+          "name": "MLX90614",
+          "manufacturer": "Melexis",
+          "description": "Non-contact IR temperature sensor",
+          "metrics": [
+            "ambient_temp",
+            "object_temp"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "No init needed. Read ambient temp from 0x06, object temp from 0x07 (SMBus protocol).",
+          "read_registers": {
+            "ambient_temp": "0x06",
+            "object_temp": "0x07"
+          },
+          "libraries": {
+            "arduino": "Adafruit_MLX90614",
+            "esp-idf": "esp-idf-lib/mlx90614"
+          }
+        },
+        {
+          "name": "CCS811",
+          "manufacturer": "ams-OSRAM",
+          "description": "Digital gas sensor (eCO2, TVOC)",
+          "metrics": [
+            "eco2",
+            "tvoc"
+          ],
+          "whoami_reg": "0x20",
+          "whoami_value": "0x81",
+          "init_sequence": "Check HW_ID (reg 0x20=0x81), app start (write 0xF4), set drive mode (reg 0x01=0x10 for 1s interval)",
+          "read_registers": {
+            "algorithm_results": "0x02"
+          },
+          "libraries": {
+            "arduino": "Adafruit_CCS811",
+            "esp-idf": "esp-idf-lib/ccs811"
+          },
+          "disambiguation": "Read register 0x20: if 0x81 → CCS811. MLX90614 uses SMBus protocol and won't respond to standard register reads the same way."
+        }
+      ]
+    },
+    "0x5B": {
+      "candidates": [
+        {
+          "name": "CCS811",
+          "manufacturer": "ams-OSRAM",
+          "description": "Digital gas sensor (alt address, ADDR pin high)",
+          "metrics": [
+            "eco2",
+            "tvoc"
+          ],
+          "whoami_reg": "0x20",
+          "whoami_value": "0x81",
+          "libraries": {
+            "arduino": "Adafruit_CCS811",
+            "esp-idf": "esp-idf-lib/ccs811"
+          }
+        }
+      ]
+    },
+    "0x60": {
+      "candidates": [
+        {
+          "name": "SI1145",
+          "manufacturer": "Silicon Labs",
+          "description": "UV index, ambient light, and proximity sensor",
+          "metrics": [
+            "uv_index",
+            "visible_light",
+            "ir_light"
+          ],
+          "whoami_reg": "0x00",
+          "whoami_value": "0x45",
+          "init_sequence": "Complex init — use library. Requires coefficient/parameter RAM writes.",
+          "libraries": {
+            "arduino": "Adafruit_SI1145",
+            "esp-idf": null
+          }
+        },
+        {
+          "name": "MCP4725",
+          "manufacturer": "Microchip",
+          "description": "12-bit DAC",
+          "metrics": [],
+          "whoami_reg": null,
+          "libraries": {
+            "arduino": "Adafruit_MCP4725",
+            "esp-idf": "esp-idf-lib/mcp4725"
+          },
+          "disambiguation": "Read register 0x00: if 0x45 → SI1145. MCP4725 is an output device (DAC), not a sensor. If you need to read analog values, this is an output device."
+        }
+      ]
+    },
+    "0x68": {
+      "candidates": [
+        {
+          "name": "MPU6050",
+          "manufacturer": "InvenSense/TDK",
+          "description": "6-axis IMU (accelerometer + gyroscope)",
+          "metrics": [
+            "accel_x",
+            "accel_y",
+            "accel_z",
+            "gyro_x",
+            "gyro_y",
+            "gyro_z",
+            "imu_temp"
+          ],
+          "whoami_reg": "0x75",
+          "whoami_value": "0x68",
+          "init_sequence": "Wake up (reg 0x6B=0x00), set accel range (reg 0x1C), set gyro range (reg 0x1B), set DLPF (reg 0x1A)",
+          "read_registers": {
+            "accel": "0x3B-0x40",
+            "temp": "0x41-0x42",
+            "gyro": "0x43-0x48"
+          },
+          "libraries": {
+            "arduino": "Adafruit_MPU6050",
+            "esp-idf": "esp-idf-lib/mpu6050"
+          }
+        },
+        {
+          "name": "MPU9250",
+          "manufacturer": "InvenSense/TDK",
+          "description": "9-axis IMU (accel + gyro + magnetometer)",
+          "metrics": [
+            "accel_x",
+            "accel_y",
+            "accel_z",
+            "gyro_x",
+            "gyro_y",
+            "gyro_z",
+            "mag_x",
+            "mag_y",
+            "mag_z"
+          ],
+          "whoami_reg": "0x75",
+          "whoami_value": "0x71",
+          "init_sequence": "Wake up (reg 0x6B=0x00), enable I2C master for AK8963 magnetometer (reg 0x37=0x02)",
+          "libraries": {
+            "arduino": "MPU9250",
+            "esp-idf": null
+          }
+        },
+        {
+          "name": "DS3231",
+          "manufacturer": "Maxim Integrated",
+          "description": "Real-time clock (RTC)",
+          "metrics": [
+            "rtc_temperature"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "No init needed. Read time from registers 0x00-0x06 (BCD format). Temperature at 0x11-0x12.",
+          "read_registers": {
+            "seconds": "0x00",
+            "minutes": "0x01",
+            "hours": "0x02",
+            "temperature": "0x11-0x12"
+          },
+          "libraries": {
+            "arduino": "RTClib",
+            "esp-idf": "esp-idf-lib/ds3231"
+          },
+          "disambiguation": "Read register 0x75: if 0x68 → MPU6050, if 0x71 → MPU9250. If register 0x75 read fails or returns unexpected value, try reading 0x00 for BCD seconds — if it looks like a valid time (0x00-0x59 BCD), it's a DS3231."
+        }
+      ]
+    },
+    "0x69": {
+      "candidates": [
+        {
+          "name": "MPU6050",
+          "manufacturer": "InvenSense/TDK",
+          "description": "6-axis IMU (AD0 pin high)",
+          "metrics": [
+            "accel_x",
+            "accel_y",
+            "accel_z",
+            "gyro_x",
+            "gyro_y",
+            "gyro_z",
+            "imu_temp"
+          ],
+          "whoami_reg": "0x75",
+          "whoami_value": "0x68",
+          "libraries": {
+            "arduino": "Adafruit_MPU6050",
+            "esp-idf": "esp-idf-lib/mpu6050"
+          }
+        },
+        {
+          "name": "MPU9250",
+          "manufacturer": "InvenSense/TDK",
+          "description": "9-axis IMU (AD0 pin high)",
+          "metrics": [
+            "accel_x",
+            "accel_y",
+            "accel_z",
+            "gyro_x",
+            "gyro_y",
+            "gyro_z",
+            "mag_x",
+            "mag_y",
+            "mag_z"
+          ],
+          "whoami_reg": "0x75",
+          "whoami_value": "0x71",
+          "libraries": {
+            "arduino": "MPU9250",
+            "esp-idf": null
+          }
+        }
+      ]
+    },
+    "0x76": {
+      "candidates": [
+        {
+          "name": "BME280",
+          "manufacturer": "Bosch",
+          "description": "Temperature, humidity, and pressure sensor",
+          "metrics": [
+            "temperature",
+            "humidity",
+            "pressure"
+          ],
+          "whoami_reg": "0xD0",
+          "whoami_value": "0x60",
+          "init_sequence": "Set humidity oversampling (reg 0xF2=0x01), set temp/pressure oversampling and normal mode (reg 0xF4=0x27), set config/standby (reg 0xF5=0xA0)",
+          "read_registers": {
+            "press": "0xF7-0xF9",
+            "temp": "0xFA-0xFC",
+            "hum": "0xFD-0xFE"
+          },
+          "libraries": {
+            "arduino": "Adafruit_BME280",
+            "esp-idf": "esp-idf-lib/bme280"
+          }
+        },
+        {
+          "name": "BMP280",
+          "manufacturer": "Bosch",
+          "description": "Temperature and pressure sensor (no humidity)",
+          "metrics": [
+            "temperature",
+            "pressure"
+          ],
+          "whoami_reg": "0xD0",
+          "whoami_value": "0x58",
+          "init_sequence": "Set temp/pressure oversampling and normal mode (reg 0xF4=0x27), set config (reg 0xF5=0xA0)",
+          "read_registers": {
+            "press": "0xF7-0xF9",
+            "temp": "0xFA-0xFC"
+          },
+          "libraries": {
+            "arduino": "Adafruit_BMP280",
+            "esp-idf": "esp-idf-lib/bmp280"
+          }
+        },
+        {
+          "name": "BMP388",
+          "manufacturer": "Bosch",
+          "description": "Barometric pressure and temperature (high precision)",
+          "metrics": [
+            "temperature",
+            "pressure"
+          ],
+          "whoami_reg": "0x00",
+          "whoami_value": "0x50",
+          "init_sequence": "Set oversampling (reg 0x1C), set ODR (reg 0x1D), enable sensors (reg 0x1B=0x33)",
+          "libraries": {
+            "arduino": "Adafruit_BMP3XX",
+            "esp-idf": null
+          }
+        },
+        {
+          "name": "MS5611",
+          "manufacturer": "TE Connectivity",
+          "description": "Barometric pressure and temperature (high resolution)",
+          "metrics": [
+            "pressure",
+            "temperature"
+          ],
+          "whoami_reg": null,
+          "init_sequence": "Reset (cmd 0x1E), wait 3ms, read PROM calibration (cmds 0xA0-0xAE), convert D1/D2 (cmds 0x48/0x58)",
+          "libraries": {
+            "arduino": "MS5611",
+            "esp-idf": "esp-idf-lib/ms5611"
+          },
+          "disambiguation": "Read register 0xD0: 0x60 → BME280, 0x58 → BMP280. Read register 0x00: 0x50 → BMP388. If none match, likely MS5611 (command-based protocol, no chip ID register)."
+        }
+      ]
+    },
+    "0x77": {
+      "candidates": [
+        {
+          "name": "BME280",
+          "manufacturer": "Bosch",
+          "description": "Temperature, humidity, pressure (SDO=VDD)",
+          "metrics": [
+            "temperature",
+            "humidity",
+            "pressure"
+          ],
+          "whoami_reg": "0xD0",
+          "whoami_value": "0x60",
+          "libraries": {
+            "arduino": "Adafruit_BME280",
+            "esp-idf": "esp-idf-lib/bme280"
+          }
+        },
+        {
+          "name": "BMP280",
+          "manufacturer": "Bosch",
+          "description": "Temperature, pressure (SDO=VDD)",
+          "metrics": [
+            "temperature",
+            "pressure"
+          ],
+          "whoami_reg": "0xD0",
+          "whoami_value": "0x58",
+          "libraries": {
+            "arduino": "Adafruit_BMP280",
+            "esp-idf": "esp-idf-lib/bmp280"
+          }
+        },
+        {
+          "name": "BME680",
+          "manufacturer": "Bosch",
+          "description": "Temperature, humidity, pressure, and gas resistance (air quality)",
+          "metrics": [
+            "temperature",
+            "humidity",
+            "pressure",
+            "gas_resistance"
+          ],
+          "whoami_reg": "0xD0",
+          "whoami_value": "0x61",
+          "init_sequence": "Set humidity oversampling (reg 0x72), set temp/pressure oversampling (reg 0x74), set gas heater (regs 0x5A, 0x64, 0x71), set forced mode",
+          "libraries": {
+            "arduino": "Adafruit_BME680",
+            "esp-idf": "esp-idf-lib/bme680"
+          },
+          "disambiguation": "Read register 0xD0: 0x60 → BME280, 0x58 → BMP280, 0x61 → BME680."
+        },
+        {
+          "name": "BMP388",
+          "manufacturer": "Bosch",
+          "description": "Barometric pressure, temperature (high precision)",
+          "metrics": [
+            "temperature",
+            "pressure"
+          ],
+          "whoami_reg": "0x00",
+          "whoami_value": "0x50",
+          "libraries": {
+            "arduino": "Adafruit_BMP3XX",
+            "esp-idf": null
+          }
+        },
+        {
+          "name": "MS5611",
+          "manufacturer": "TE Connectivity",
+          "description": "Barometric pressure, temperature (CSB=VDD)",
+          "metrics": [
+            "pressure",
+            "temperature"
+          ],
+          "whoami_reg": null,
+          "libraries": {
+            "arduino": "MS5611",
+            "esp-idf": "esp-idf-lib/ms5611"
+          }
+        }
+      ]
+    }
+  }
+}

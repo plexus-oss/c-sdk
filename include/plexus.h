@@ -127,6 +127,7 @@ typedef void (*plexus_status_callback_t)(plexus_conn_status_t status, void* user
 struct plexus_client {
     char api_key[PLEXUS_MAX_API_KEY_LEN];
     char source_id[PLEXUS_MAX_SOURCE_ID_LEN];
+    char session_id[PLEXUS_MAX_SESSION_ID_LEN];
     char endpoint[PLEXUS_MAX_ENDPOINT_LEN];
 
     plexus_metric_t metrics[PLEXUS_MAX_METRICS];
@@ -398,6 +399,43 @@ uint32_t plexus_total_sent(const plexus_client_t* client);
 
 /** Lifetime counter: total send errors. */
 uint32_t plexus_total_errors(const plexus_client_t* client);
+
+/* ------------------------------------------------------------------------- */
+/* Recording sessions                                                        */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Start a recording session.
+ *
+ * All subsequent metrics will include session_id in their JSON payload
+ * until plexus_session_end() is called. Session IDs follow the same
+ * URL-safe character rules as source_id: [a-zA-Z0-9._-].
+ *
+ * @param client     Plexus client
+ * @param session_id Session identifier (e.g., "motor-test-001")
+ * @return           PLEXUS_OK on success
+ */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_session_start(plexus_client_t* client, const char* session_id);
+
+/**
+ * End the current recording session.
+ *
+ * Subsequent metrics will no longer include a session_id field.
+ *
+ * @param client Plexus client
+ * @return       PLEXUS_OK on success
+ */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_session_end(plexus_client_t* client);
+
+/**
+ * Get the current session ID, or NULL if no session is active.
+ *
+ * @param client Plexus client
+ * @return       Session ID string, or NULL
+ */
+const char* plexus_session_id(const plexus_client_t* client);
 
 /* ------------------------------------------------------------------------- */
 /* Connection status (opt-in via PLEXUS_ENABLE_STATUS_CALLBACK)              */

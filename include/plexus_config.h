@@ -41,6 +41,10 @@
 #define PLEXUS_MAX_SOURCE_ID_LEN 64    /* Max source ID length */
 #endif
 
+#ifndef PLEXUS_MAX_SESSION_ID_LEN
+#define PLEXUS_MAX_SESSION_ID_LEN 64   /* Max session ID length */
+#endif
+
 #ifndef PLEXUS_MAX_API_KEY_LEN
 #define PLEXUS_MAX_API_KEY_LEN 128     /* Max API key length */
 #endif

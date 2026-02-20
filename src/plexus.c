@@ -325,6 +325,55 @@ plexus_err_t plexus_set_flush_count(plexus_client_t* client, uint16_t count) {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Recording sessions                                                        */
+/* ------------------------------------------------------------------------- */
+
+plexus_err_t plexus_session_start(plexus_client_t* client, const char* session_id) {
+    if (!client || !session_id) {
+        return PLEXUS_ERR_NULL_PTR;
+    }
+    if (!client->initialized) {
+        return PLEXUS_ERR_NOT_INITIALIZED;
+    }
+    if (strlen(session_id) >= PLEXUS_MAX_SESSION_ID_LEN) {
+        return PLEXUS_ERR_STRING_TOO_LONG;
+    }
+    if (!plexus_internal_is_url_safe(session_id)) {
+        return PLEXUS_ERR_INVALID_ARG;
+    }
+
+    PLEXUS_LOCK(client);
+    strncpy(client->session_id, session_id, PLEXUS_MAX_SESSION_ID_LEN - 1);
+    client->session_id[PLEXUS_MAX_SESSION_ID_LEN - 1] = '\0';
+    PLEXUS_UNLOCK(client);
+    return PLEXUS_OK;
+}
+
+plexus_err_t plexus_session_end(plexus_client_t* client) {
+    if (!client) {
+        return PLEXUS_ERR_NULL_PTR;
+    }
+    if (!client->initialized) {
+        return PLEXUS_ERR_NOT_INITIALIZED;
+    }
+
+    PLEXUS_LOCK(client);
+    client->session_id[0] = '\0';
+    PLEXUS_UNLOCK(client);
+    return PLEXUS_OK;
+}
+
+const char* plexus_session_id(const plexus_client_t* client) {
+    if (!client || !client->initialized) {
+        return NULL;
+    }
+    if (client->session_id[0] == '\0') {
+        return NULL;
+    }
+    return client->session_id;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Send metrics                                                              */
 /* ------------------------------------------------------------------------- */
 

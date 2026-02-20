@@ -191,6 +191,12 @@ int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_s
         json_append(&w, ",\"source_id\":");
         json_append_escaped(&w, client->source_id);
 
+        /* Session ID (only when a session is active) */
+        if (client->session_id[0] != '\0') {
+            json_append(&w, ",\"session_id\":");
+            json_append_escaped(&w, client->session_id);
+        }
+
 #if PLEXUS_ENABLE_TAGS
         /* Tags */
         if (m->tag_count > 0) {
