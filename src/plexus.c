@@ -118,9 +118,6 @@ static const char* s_error_messages[] = {
     "Client not initialized",
     "HAL error",
     "Invalid argument",
-    "Transport error",
-    "Device not registered",
-    "I2C error",
 };
 
 const char* plexus_strerror(plexus_err_t err) {
@@ -201,11 +198,6 @@ static plexus_client_t* client_init_common(plexus_client_t* client,
     client->initialized = true;
     client->_heap_allocated = heap_allocated;
 
-#if PLEXUS_ENABLE_COMMANDS
-    client->command_handler = NULL;
-    client->last_command_poll_ms = plexus_hal_get_tick_ms();
-#endif
-
 #if PLEXUS_ENABLE_STATUS_CALLBACK
     client->status_callback = NULL;
     client->status_callback_data = NULL;
@@ -214,33 +206,6 @@ static plexus_client_t* client_init_common(plexus_client_t* client,
 
 #if PLEXUS_ENABLE_THREAD_SAFE
     client->mutex = plexus_hal_mutex_create();
-#endif
-
-#if PLEXUS_ENABLE_HEARTBEAT
-    client->registered_metric_count = 0;
-    client->device_type[0] = '\0';
-    client->firmware_version[0] = '\0';
-    client->last_heartbeat_ms = plexus_hal_get_tick_ms();
-#endif
-
-#if PLEXUS_ENABLE_MQTT
-    client->transport = PLEXUS_TRANSPORT_HTTP;
-    client->broker_uri[0] = '\0';
-    client->mqtt_topic[0] = '\0';
-#endif
-
-#if PLEXUS_ENABLE_AUTO_REGISTER
-    client->registered = false;
-    client->hostname[0] = '\0';
-    client->platform_name[0] = '\0';
-#endif
-
-#if PLEXUS_ENABLE_SENSOR_DISCOVERY
-    client->detected_sensor_count = 0;
-#endif
-
-#if PLEXUS_ENABLE_TYPED_COMMANDS
-    client->typed_command_count = 0;
 #endif
 
 #if PLEXUS_DEBUG
@@ -300,12 +265,6 @@ void plexus_free(plexus_client_t* client) {
     if (!client) {
         return;
     }
-
-#if PLEXUS_ENABLE_MQTT
-    if (client->transport == PLEXUS_TRANSPORT_MQTT) {
-        plexus_hal_mqtt_disconnect();
-    }
-#endif
 
 #if PLEXUS_ENABLE_THREAD_SAFE
     if (client->mutex) {
@@ -583,10 +542,6 @@ static bool tick_elapsed(uint32_t now, uint32_t deadline) {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Flush & network                                                           */
-/* ------------------------------------------------------------------------- */
-
-/* ------------------------------------------------------------------------- */
 /* Multi-batch persistent buffer helpers                                     */
 /* ------------------------------------------------------------------------- */
 
@@ -629,28 +584,6 @@ static void persist_save_meta(const plexus_persist_meta_t* meta) {
 /* ------------------------------------------------------------------------- */
 /* Flush & network                                                           */
 /* ------------------------------------------------------------------------- */
-
-/**
- * Send a JSON payload via the active transport (HTTP or MQTT).
- */
-static plexus_err_t flush_send_payload(plexus_client_t* client,
-                                        const char* payload, size_t payload_len) {
-#if PLEXUS_ENABLE_MQTT
-    if (client->transport == PLEXUS_TRANSPORT_MQTT) {
-        if (!plexus_hal_mqtt_is_connected()) {
-            plexus_err_t conn_err = plexus_hal_mqtt_connect(
-                client->broker_uri, client->api_key, client->source_id);
-            if (conn_err != PLEXUS_OK) {
-                return PLEXUS_ERR_TRANSPORT;
-            }
-        }
-        return plexus_hal_mqtt_publish(client->mqtt_topic, payload, payload_len,
-                                        PLEXUS_MQTT_QOS);
-    }
-#endif
-    return plexus_hal_http_post(client->endpoint, client->api_key,
-                                 PLEXUS_USER_AGENT, payload, payload_len);
-}
 
 plexus_err_t plexus_flush(plexus_client_t* client) {
     if (!client) {
@@ -715,7 +648,9 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
             /* Shift payload to front of buffer for sending */
             memmove(client->json_buffer, client->json_buffer + sizeof(header), header.data_len);
 
-            plexus_err_t send_err = flush_send_payload(client, client->json_buffer, header.data_len);
+            plexus_err_t send_err = plexus_hal_http_post(
+                client->endpoint, client->api_key, PLEXUS_USER_AGENT,
+                client->json_buffer, header.data_len);
             if (send_err == PLEXUS_OK) {
                 plexus_hal_storage_clear(slot_key);
                 meta.tail = (meta.tail + 1) % PLEXUS_PERSIST_MAX_BATCHES;
@@ -756,7 +691,9 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
             plexus_hal_delay_ms(delay);
         }
 
-        err = flush_send_payload(client, client->json_buffer, (size_t)json_len);
+        err = plexus_hal_http_post(client->endpoint, client->api_key,
+                                    PLEXUS_USER_AGENT,
+                                    client->json_buffer, (size_t)json_len);
 
         if (err == PLEXUS_OK) {
             client->total_sent += client->metric_count;
@@ -889,31 +826,6 @@ plexus_err_t plexus_tick(plexus_client_t* client) {
 
     PLEXUS_LOCK(client);
 
-#if PLEXUS_ENABLE_COMMANDS
-    if (client->command_handler) {
-        uint32_t now_ms = plexus_hal_get_tick_ms();
-        uint32_t cmd_deadline = client->last_command_poll_ms + PLEXUS_COMMAND_POLL_INTERVAL_MS;
-        if (tick_elapsed(now_ms, cmd_deadline)) {
-            client->last_command_poll_ms = now_ms;
-            PLEXUS_UNLOCK(client);
-            plexus_poll_commands(client);
-            PLEXUS_LOCK(client);
-        }
-    }
-#endif
-
-#if PLEXUS_ENABLE_HEARTBEAT
-    {
-        uint32_t now_ms = plexus_hal_get_tick_ms();
-        uint32_t hb_deadline = client->last_heartbeat_ms + PLEXUS_HEARTBEAT_INTERVAL_MS;
-        if (tick_elapsed(now_ms, hb_deadline)) {
-            PLEXUS_UNLOCK(client);
-            plexus_heartbeat(client);
-            PLEXUS_LOCK(client);
-        }
-    }
-#endif
-
     /* Nothing to flush — return OK (idle is not an error) */
     if (client->metric_count == 0) {
         PLEXUS_UNLOCK(client);
@@ -965,141 +877,3 @@ plexus_conn_status_t plexus_get_status(const plexus_client_t* client) {
 }
 
 #endif /* PLEXUS_ENABLE_STATUS_CALLBACK */
-
-/* ------------------------------------------------------------------------- */
-/* Heartbeat API                                                             */
-/* ------------------------------------------------------------------------- */
-
-#if PLEXUS_ENABLE_HEARTBEAT
-
-plexus_err_t plexus_register_metric(plexus_client_t* client, const char* metric_name) {
-    if (!client || !metric_name) return PLEXUS_ERR_NULL_PTR;
-    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
-
-    PLEXUS_LOCK(client);
-
-    if (client->registered_metric_count >= PLEXUS_MAX_REGISTERED_METRICS) {
-        PLEXUS_UNLOCK(client);
-        return PLEXUS_ERR_BUFFER_FULL;
-    }
-
-    /* Check for duplicate */
-    for (uint16_t i = 0; i < client->registered_metric_count; i++) {
-        if (strcmp(client->registered_metrics[i], metric_name) == 0) {
-            PLEXUS_UNLOCK(client);
-            return PLEXUS_OK;
-        }
-    }
-
-    strncpy(client->registered_metrics[client->registered_metric_count],
-            metric_name, PLEXUS_MAX_METRIC_NAME_LEN - 1);
-    client->registered_metrics[client->registered_metric_count][PLEXUS_MAX_METRIC_NAME_LEN - 1] = '\0';
-    client->registered_metric_count++;
-
-    PLEXUS_UNLOCK(client);
-    return PLEXUS_OK;
-}
-
-plexus_err_t plexus_set_device_info(plexus_client_t* client,
-                                     const char* device_type,
-                                     const char* firmware_version) {
-    if (!client) return PLEXUS_ERR_NULL_PTR;
-    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
-
-    PLEXUS_LOCK(client);
-
-    if (device_type) {
-        strncpy(client->device_type, device_type, PLEXUS_MAX_METADATA_LEN - 1);
-        client->device_type[PLEXUS_MAX_METADATA_LEN - 1] = '\0';
-    }
-    if (firmware_version) {
-        strncpy(client->firmware_version, firmware_version, PLEXUS_MAX_METADATA_LEN - 1);
-        client->firmware_version[PLEXUS_MAX_METADATA_LEN - 1] = '\0';
-    }
-
-    PLEXUS_UNLOCK(client);
-    return PLEXUS_OK;
-}
-
-plexus_err_t plexus_heartbeat(plexus_client_t* client) {
-    if (!client) return PLEXUS_ERR_NULL_PTR;
-    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
-
-    PLEXUS_LOCK(client);
-
-    int hb_len = plexus_json_build_heartbeat(client, client->json_buffer, PLEXUS_JSON_BUFFER_SIZE);
-    if (hb_len < 0) {
-        PLEXUS_UNLOCK(client);
-        return PLEXUS_ERR_JSON;
-    }
-
-    /* Build heartbeat URL: replace /api/ingest with /api/heartbeat */
-    char hb_url[512];
-    {
-        const char* api_pos = strstr(client->endpoint, "/api/ingest");
-        size_t base_len;
-        if (api_pos) {
-            base_len = (size_t)(api_pos - client->endpoint);
-        } else {
-            base_len = strlen(client->endpoint);
-            while (base_len > 0 && client->endpoint[base_len - 1] == '/') {
-                base_len--;
-            }
-        }
-
-        int written = snprintf(hb_url, sizeof(hb_url), "%.*s/api/heartbeat",
-                               (int)base_len, client->endpoint);
-        if (written < 0 || written >= (int)sizeof(hb_url)) {
-            PLEXUS_UNLOCK(client);
-            return PLEXUS_ERR_HAL;
-        }
-    }
-
-    plexus_err_t err = plexus_hal_http_post(hb_url, client->api_key, PLEXUS_USER_AGENT,
-                                              client->json_buffer, (size_t)hb_len);
-    client->last_heartbeat_ms = plexus_hal_get_tick_ms();
-
-    PLEXUS_UNLOCK(client);
-    return err;
-}
-
-#endif /* PLEXUS_ENABLE_HEARTBEAT */
-
-/* ------------------------------------------------------------------------- */
-/* MQTT transport API                                                        */
-/* ------------------------------------------------------------------------- */
-
-#if PLEXUS_ENABLE_MQTT
-
-plexus_err_t plexus_set_transport_mqtt(plexus_client_t* client, const char* broker_uri) {
-    if (!client || !broker_uri) return PLEXUS_ERR_NULL_PTR;
-    if (!client->initialized) return PLEXUS_ERR_NOT_INITIALIZED;
-
-    PLEXUS_LOCK(client);
-
-    if (strlen(broker_uri) >= sizeof(client->broker_uri)) {
-        PLEXUS_UNLOCK(client);
-        return PLEXUS_ERR_STRING_TOO_LONG;
-    }
-
-    strncpy(client->broker_uri, broker_uri, sizeof(client->broker_uri) - 1);
-    client->broker_uri[sizeof(client->broker_uri) - 1] = '\0';
-
-    /* Build topic: plexus/ingest/<source_id> */
-    snprintf(client->mqtt_topic, sizeof(client->mqtt_topic),
-             "%s/%s", PLEXUS_MQTT_TOPIC_PREFIX, client->source_id);
-
-    client->transport = PLEXUS_TRANSPORT_MQTT;
-
-    PLEXUS_UNLOCK(client);
-    return PLEXUS_OK;
-}
-
-plexus_transport_t plexus_get_transport(const plexus_client_t* client) {
-    if (!client || !client->initialized) {
-        return PLEXUS_TRANSPORT_HTTP;
-    }
-    return client->transport;
-}
-
-#endif /* PLEXUS_ENABLE_MQTT */

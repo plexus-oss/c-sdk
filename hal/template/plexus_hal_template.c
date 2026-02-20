@@ -59,7 +59,7 @@
  *
  * @param url        Full URL (e.g., "https://app.plexus.company/api/ingest")
  * @param api_key    API key string for the x-api-key header
- * @param user_agent User-Agent header value (e.g., "plexus-c-sdk/0.2.1")
+ * @param user_agent User-Agent header value (e.g., "plexus-c-sdk/0.5.0")
  * @param body       JSON request body (null-terminated)
  * @param body_len   Length of body in bytes (excluding null terminator)
  * @return           PLEXUS_OK on success, error code on failure
@@ -87,89 +87,6 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
     (void)body_len;
     return PLEXUS_ERR_HAL;
 }
-
-/* ========================================================================= */
-/* OPTIONAL: HTTP POST with response (only if PLEXUS_ENABLE_AUTO_REGISTER=1)*/
-/* ========================================================================= */
-
-#if PLEXUS_ENABLE_AUTO_REGISTER
-/**
- * Send an HTTP POST request and return the response body.
- *
- * Same as plexus_hal_http_post(), but also captures the response body.
- * Only required when auto-registration is enabled.
- *
- * @param url              Full URL
- * @param api_key          API key for x-api-key header
- * @param user_agent       User-Agent header value
- * @param body             JSON request body
- * @param body_len         Length of body
- * @param response_buf     Buffer to write response body into
- * @param response_buf_size Size of response_buf
- * @param response_len     Output: actual bytes written to response_buf
- * @return                 PLEXUS_OK on success, error code on failure
- */
-plexus_err_t plexus_hal_http_post_response(
-    const char* url, const char* api_key, const char* user_agent,
-    const char* body, size_t body_len,
-    char* response_buf, size_t response_buf_size, size_t* response_len) {
-    if (!url || !api_key || !body || !response_buf || !response_len) {
-        return PLEXUS_ERR_NULL_PTR;
-    }
-
-    *response_len = 0;
-
-    /* TODO: Implement HTTP POST with response capture for your platform */
-
-    (void)user_agent;
-    (void)body_len;
-    (void)response_buf_size;
-    return PLEXUS_ERR_HAL;
-}
-#endif /* PLEXUS_ENABLE_AUTO_REGISTER */
-
-/* ========================================================================= */
-/* OPTIONAL: HTTP GET (only needed if PLEXUS_ENABLE_COMMANDS=1)              */
-/* ========================================================================= */
-
-#if PLEXUS_ENABLE_COMMANDS
-/**
- * Send an HTTP GET request and return the response body.
- *
- * Only required when command polling is enabled.
- *
- * Contract:
- *   - MUST set headers: x-api-key: <api_key>, User-Agent: <user_agent>
- *   - MUST write response body to response_buf (null-terminated)
- *   - MUST set *response_len to actual bytes written
- *   - MUST return PLEXUS_OK        on HTTP 2xx
- *   - Same HTTP status mapping as http_post
- *
- * @param url          Full URL
- * @param api_key      API key for x-api-key header
- * @param user_agent   User-Agent header value
- * @param response_buf Buffer to write response body into
- * @param buf_size     Size of response_buf
- * @param response_len Output: actual bytes written to response_buf
- * @return             PLEXUS_OK on success, error code on failure
- */
-plexus_err_t plexus_hal_http_get(const char* url, const char* api_key,
-                                  const char* user_agent,
-                                  char* response_buf, size_t buf_size,
-                                  size_t* response_len) {
-    if (!url || !api_key || !response_buf || !response_len) {
-        return PLEXUS_ERR_NULL_PTR;
-    }
-
-    *response_len = 0;
-
-    /* TODO: Implement HTTP GET for your platform */
-
-    (void)user_agent;
-    (void)buf_size;
-    return PLEXUS_ERR_HAL;
-}
-#endif /* PLEXUS_ENABLE_COMMANDS */
 
 /* ========================================================================= */
 /* REQUIRED: Timestamps                                                      */
@@ -247,7 +164,7 @@ void plexus_hal_log(const char* fmt, ...) {
 /**
  * Write data to persistent (flash/EEPROM) storage.
  *
- * @param key   Storage key (always "plexus_buf")
+ * @param key   Storage key (e.g., "plexus_meta", "plexus_b0")
  * @param data  Pointer to data to write
  * @param len   Number of bytes to write
  * @return      PLEXUS_OK on success, PLEXUS_ERR_HAL on failure
@@ -325,93 +242,6 @@ void plexus_hal_mutex_destroy(void* mutex) {
 }
 
 #endif /* PLEXUS_ENABLE_THREAD_SAFE */
-
-/* ========================================================================= */
-/* OPTIONAL: MQTT transport (only if PLEXUS_ENABLE_MQTT=1)                   */
-/* ========================================================================= */
-
-#if PLEXUS_ENABLE_MQTT
-
-plexus_err_t plexus_hal_mqtt_connect(const char* broker_uri, const char* api_key,
-                                      const char* source_id) {
-    /* TODO: Connect to MQTT broker */
-    (void)broker_uri;
-    (void)api_key;
-    (void)source_id;
-    return PLEXUS_ERR_HAL;
-}
-
-plexus_err_t plexus_hal_mqtt_publish(const char* topic, const char* payload,
-                                      size_t payload_len, int qos) {
-    /* TODO: Publish message to topic */
-    (void)topic;
-    (void)payload;
-    (void)payload_len;
-    (void)qos;
-    return PLEXUS_ERR_HAL;
-}
-
-bool plexus_hal_mqtt_is_connected(void) {
-    /* TODO: Return true if MQTT connection is active */
-    return false;
-}
-
-void plexus_hal_mqtt_disconnect(void) {
-    /* TODO: Disconnect from MQTT broker */
-}
-
-#if PLEXUS_ENABLE_COMMANDS
-plexus_err_t plexus_hal_mqtt_subscribe(const char* topic, int qos) {
-    (void)topic;
-    (void)qos;
-    return PLEXUS_ERR_HAL;
-}
-
-plexus_err_t plexus_hal_mqtt_receive(char* buf, size_t buf_size, size_t* msg_len) {
-    (void)buf;
-    (void)buf_size;
-    if (msg_len) *msg_len = 0;
-    return PLEXUS_OK;
-}
-#endif /* PLEXUS_ENABLE_COMMANDS */
-
-#endif /* PLEXUS_ENABLE_MQTT */
-
-/* ========================================================================= */
-/* OPTIONAL: I2C sensor discovery (only if PLEXUS_ENABLE_SENSOR_DISCOVERY=1) */
-/* ========================================================================= */
-
-#if PLEXUS_ENABLE_SENSOR_DISCOVERY
-
-plexus_err_t plexus_hal_i2c_init(uint8_t bus_num) {
-    /* TODO: Initialize I2C bus for your platform */
-    (void)bus_num;
-    return PLEXUS_ERR_HAL;
-}
-
-bool plexus_hal_i2c_probe(uint8_t addr) {
-    /* TODO: Send start+address on I2C, return true if ACK received */
-    (void)addr;
-    return false;
-}
-
-plexus_err_t plexus_hal_i2c_read_reg(uint8_t addr, uint8_t reg, uint8_t* out) {
-    /* TODO: Read single register from I2C device */
-    (void)addr;
-    (void)reg;
-    (void)out;
-    return PLEXUS_ERR_HAL;
-}
-
-plexus_err_t plexus_hal_i2c_write_reg(uint8_t addr, uint8_t reg, uint8_t val) {
-    /* TODO: Write single register to I2C device */
-    (void)addr;
-    (void)reg;
-    (void)val;
-    return PLEXUS_ERR_HAL;
-}
-
-#endif /* PLEXUS_ENABLE_SENSOR_DISCOVERY */
 
 /* ========================================================================= */
 /* Verification Checklist                                                    */

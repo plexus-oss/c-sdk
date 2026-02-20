@@ -49,7 +49,7 @@ pio ci examples/arduino_basic/plexus_example.ino \
 ```bash
 pio ci \
   examples/stm32_freertos/main.c \
-  src/plexus.c src/plexus_json.c src/plexus_commands.c \
+  src/plexus.c src/plexus_json.c \
   hal/stm32/plexus_hal_stm32.c \
   --board=nucleo_f446re \
   --project-option="framework=stm32cube" \
@@ -78,17 +78,17 @@ pio ci \
 ## Project Structure
 
 ```
-include/plexus.h          — Public API only (opaque client handle)
+include/plexus.h          — Public C API (opaque client handle)
+include/plexus.hpp        — C++ wrapper class for Arduino / ESP-IDF C++ projects
 include/plexus_config.h   — Compile-time configuration defaults
-src/plexus_internal.h     — Private header (struct definition, internal types)
+src/plexus_internal.h     — Private header (internal declarations)
 src/plexus.c              — Core implementation
 src/plexus_json.c         — JSON serializer
-src/plexus_commands.c     — Command polling (opt-in)
 hal/                      — Platform-specific implementations
 tests/                    — Host test suite with mock HAL
 ```
 
-The public header (`include/plexus.h`) exposes only an opaque `plexus_client_t*` handle. All struct internals live in `src/plexus_internal.h` — HAL implementations and tests that need struct access include the internal header.
+The public header (`include/plexus.h`) exposes only an opaque `plexus_client_t*` handle. All struct internals live in `include/plexus.h` (for compile-time sizing) but are not part of the public API.
 
 ## Adding a New Platform
 

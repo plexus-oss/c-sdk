@@ -3,14 +3,11 @@ project(plexus-tests LANGUAGES C)
 
 enable_testing()
 
-# Source files (SDK core + JSON serializer + commands + register + sensors)
+# Source files (SDK core + JSON serializer)
 set(SDK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(SDK_SOURCES
     ${SDK_DIR}/src/plexus.c
     ${SDK_DIR}/src/plexus_json.c
-    ${SDK_DIR}/src/plexus_commands.c
-    ${SDK_DIR}/src/plexus_register.c
-    ${SDK_DIR}/src/plexus_sensors.c
 )
 
 # Mock HAL
@@ -111,59 +108,3 @@ target_link_options(test_persist PRIVATE ${SANITIZER_FLAGS})
 target_link_libraries(test_persist PRIVATE m)
 
 add_test(NAME test_persist COMMAND test_persist)
-
-# ---- test_heartbeat ----
-add_executable(test_heartbeat
-    test_heartbeat.c
-    ${SDK_SOURCES}
-    ${MOCK_HAL}
-)
-target_include_directories(test_heartbeat PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
-target_compile_features(test_heartbeat PRIVATE c_std_99)
-target_compile_options(test_heartbeat PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_HEARTBEAT=1)
-target_link_options(test_heartbeat PRIVATE ${SANITIZER_FLAGS})
-target_link_libraries(test_heartbeat PRIVATE m)
-
-add_test(NAME test_heartbeat COMMAND test_heartbeat)
-
-# ---- test_mqtt ----
-add_executable(test_mqtt
-    test_mqtt.c
-    ${SDK_SOURCES}
-    ${MOCK_HAL}
-)
-target_include_directories(test_mqtt PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
-target_compile_features(test_mqtt PRIVATE c_std_99)
-target_compile_options(test_mqtt PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_MQTT=1)
-target_link_options(test_mqtt PRIVATE ${SANITIZER_FLAGS})
-target_link_libraries(test_mqtt PRIVATE m)
-
-add_test(NAME test_mqtt COMMAND test_mqtt)
-
-# ---- test_register ----
-add_executable(test_register
-    test_register.c
-    ${SDK_SOURCES}
-    ${MOCK_HAL}
-)
-target_include_directories(test_register PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
-target_compile_features(test_register PRIVATE c_std_99)
-target_compile_options(test_register PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_AUTO_REGISTER=1 -DPLEXUS_ENABLE_PERSISTENT_BUFFER=1)
-target_link_options(test_register PRIVATE ${SANITIZER_FLAGS})
-target_link_libraries(test_register PRIVATE m)
-
-add_test(NAME test_register COMMAND test_register)
-
-# ---- test_sensors ----
-add_executable(test_sensors
-    test_sensors.c
-    ${SDK_SOURCES}
-    ${MOCK_HAL}
-)
-target_include_directories(test_sensors PRIVATE ${SDK_INCLUDE} ${SDK_SRC_INCLUDE})
-target_compile_features(test_sensors PRIVATE c_std_99)
-target_compile_options(test_sensors PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-result ${SANITIZER_FLAGS} -DPLEXUS_ENABLE_SENSOR_DISCOVERY=1 -DPLEXUS_ENABLE_HEARTBEAT=1 -DPLEXUS_SENSOR_BME280=1 -DPLEXUS_SENSOR_MPU6050=1)
-target_link_options(test_sensors PRIVATE ${SANITIZER_FLAGS})
-target_link_libraries(test_sensors PRIVATE m)
-
-add_test(NAME test_sensors COMMAND test_sensors)

@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-19
+
+### Breaking
+
+- **Stripped SDK down to a telemetry shipper.** Removed all features that the platform handles better or that belong in the Python agent:
+  - Command polling (`PLEXUS_ENABLE_COMMANDS`) — platform uses WebSocket via the Python agent
+  - Typed commands (`PLEXUS_ENABLE_TYPED_COMMANDS`) — requires command polling
+  - Device heartbeat (`PLEXUS_ENABLE_HEARTBEAT`) — platform derives online/offline from `last_seen_at`
+  - MQTT transport (`PLEXUS_ENABLE_MQTT`) — no Plexus MQTT broker exists
+  - Auto-registration (`PLEXUS_ENABLE_AUTO_REGISTER`) — platform creates sources on first ingest
+  - I2C sensor discovery (`PLEXUS_ENABLE_SENSOR_DISCOVERY`) — sensor drivers don't belong in a transport library
+- Removed error codes: `PLEXUS_ERR_TRANSPORT`, `PLEXUS_ERR_NOT_REGISTERED`, `PLEXUS_ERR_I2C`
+- Removed HAL functions: `plexus_hal_http_get`, `plexus_hal_http_post_response`, `plexus_hal_i2c_*`, `plexus_hal_mqtt_*`
+- C++ wrapper moved from inline in `plexus.h` to separate `include/plexus.hpp`
+
+### Removed
+
+- Source files: `plexus_commands.c`, `plexus_register.c`, `plexus_sensors.c`, `plexus_typed_commands.c`
+- HAL files: `plexus_hal_mqtt_esp32.c`, `plexus_hal_i2c_esp32.c`, `plexus_hal_i2c_stm32.c`
+- Examples: `esp32_autodiscovery/`, `typed_commands/`
+- Tests: `test_heartbeat`, `test_mqtt`, `test_register`, `test_sensors`
+- `firmware/` directory (complete application, not SDK code)
+- `firmware.yml` CI workflow
+- ~100 compile-time config defines for removed features
+
+### Changed
+
+- Default RAM footprint reduced from ~17KB to ~5KB (all remaining features enabled)
+- ESP-IDF component no longer requires `mqtt` or `driver` dependencies
+
 ## [0.4.0] - 2026-02-19
 
 ### Fixed
@@ -162,6 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow: host tests + PlatformIO cross-compilation for ESP32, ESP8266, STM32
 - Examples: ESP32 ESP-IDF, Arduino basic, STM32 FreeRTOS
 
+[0.5.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.4.0
 [0.3.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.3.0
 [0.2.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.2.1

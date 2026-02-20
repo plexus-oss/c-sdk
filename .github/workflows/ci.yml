@@ -118,7 +118,6 @@ jobs:
             examples/stm32_freertos/main.c \
             src/plexus.c \
             src/plexus_json.c \
-            src/plexus_commands.c \
             hal/stm32/plexus_hal_stm32.c \
             --board=nucleo_f446re \
             --project-option="framework=stm32cube" \
