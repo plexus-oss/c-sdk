@@ -5,9 +5,6 @@
  * Quick start (< 10 minutes):
  *   1. Get your API key from https://app.plexus.company/settings/api-keys
  *   2. Set WIFI_SSID, WIFI_PASSWORD, and PLEXUS_API_KEY below
- *   3. Build and flash:
- *        idf.py build flash monitor       (ESP-IDF)
- *        pio run -t upload -t monitor      (PlatformIO)
  *   4. Watch telemetry appear in your Plexus dashboard
  *
  * This example demonstrates:

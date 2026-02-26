@@ -82,24 +82,6 @@ Data appears in real time at [app.plexus.company](https://app.plexus.company).
 
 ## Install
 
-### PlatformIO
-
-```ini
-lib_deps =
-    https://github.com/plexus-oss/c-sdk.git#main
-```
-
-### ESP-IDF Component
-
-```yaml
-# idf_component.yml
-dependencies:
-  plexus-sdk:
-    git: https://github.com/plexus-oss/c-sdk.git
-```
-
-Or copy to your project's `components/` folder.
-
 ### Manual
 
 Copy `include/`, `src/`, and the appropriate `hal/` directory to your project.
@@ -207,16 +189,16 @@ Override via compiler flags (`-DPLEXUS_MAX_METRICS=8`) or before including `plex
 
 RAM usage is dominated by three components:
 
-| Component | Default | Minimal | Scales with |
-|-----------|---------|---------|-------------|
+| Component      | Default | Minimal  | Scales with                                              |
+| -------------- | ------- | -------- | -------------------------------------------------------- |
 | Metrics buffer | largest | smallest | `PLEXUS_MAX_METRICS` × (name + value + timestamp + tags) |
-| JSON buffer | 2048 B | 512 B | `PLEXUS_JSON_BUFFER_SIZE` |
-| Fixed fields | ~512 B | ~320 B | API key, source ID, endpoint, session, state |
+| JSON buffer    | 2048 B  | 512 B    | `PLEXUS_JSON_BUFFER_SIZE`                                |
+| Fixed fields   | ~512 B  | ~320 B   | API key, source ID, endpoint, session, state             |
 
-| Config | Total RAM per client |
-|--------|----------------------|
-| Default (all features, 32 metrics) | ~5 KB |
-| Minimal (numbers only, 8 metrics) | ~1.5 KB |
+| Config                             | Total RAM per client |
+| ---------------------------------- | -------------------- |
+| Default (all features, 32 metrics) | ~5 KB                |
+| Minimal (numbers only, 8 metrics)  | ~1.5 KB              |
 
 Disabling tags (`PLEXUS_ENABLE_TAGS=0`) and string values (`PLEXUS_ENABLE_STRING_VALUES=0`) shrinks each metric slot significantly — the value union drops from 128 bytes to 8 bytes.
 
@@ -283,10 +265,10 @@ Uses a ring buffer with `PLEXUS_PERSIST_MAX_BATCHES` slots (default 8). Oldest b
 
 `plexus_flush()` blocks while sending. Timing depends on the outcome:
 
-| Scenario | Duration |
-|----------|----------|
-| Success (first attempt) | < 1 second |
-| Transient failure + retry | 1–5 seconds |
+| Scenario                      | Duration    |
+| ----------------------------- | ----------- |
+| Success (first attempt)       | < 1 second  |
+| Transient failure + retry     | 1–5 seconds |
 | All retries fail (worst case) | ~14 seconds |
 
 The worst case is 3 retries with exponential backoff (500ms → 1s → 2s → ... up to 8s max, plus ±25% jitter). On FreeRTOS, the calling task yields during delays. On bare-metal Arduino, `delay()` blocks everything.

@@ -13,7 +13,7 @@
  *   3. Set PLEXUS_API_KEY and PLEXUS_SOURCE_ID below
  *
  * Build:
- *   STM32CubeIDE or PlatformIO with stm32cube framework
+ *   STM32CubeIDE
  *
  * Note: The STM32 HAL uses HTTP (not HTTPS). For HTTPS, integrate mbedTLS
  * with LwIP's altcp_tls layer.

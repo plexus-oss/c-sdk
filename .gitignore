@@ -6,10 +6,6 @@ build*/
 # Doxygen output
 docs/
 
-# PlatformIO
-.pio/
-.pioenvs/
-.piolibdeps/
 
 # IDE
 .vscode/

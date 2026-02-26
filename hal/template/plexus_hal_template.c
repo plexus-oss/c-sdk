@@ -9,8 +9,7 @@
  *   2. Replace the platform guard below with your platform's define
  *   3. Implement each function (see contract requirements in comments)
  *   4. Update CMakeLists.txt to include your HAL source
- *   5. Update library.json srcFilter if supporting PlatformIO
- *   6. Add a build step to .github/workflows/ci.yml
+ *   5. Add a build step to .github/workflows/ci.yml
  *
  * Function categories:
  *   REQUIRED — SDK will not function without these

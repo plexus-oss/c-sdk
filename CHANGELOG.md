@@ -207,10 +207,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HAL interface includes `plexus_hal_delay_ms()` for platform-native delay (FreeRTOS vTaskDelay, HAL_Delay, etc.)
 - HAL porting template with annotated stubs and verification checklist
 - Dual-mode CMake: ESP-IDF component registration or standalone static library
-- PlatformIO manifest (`library.json`) with Arduino HAL source filter
 - ESP-IDF Component Registry manifest (`idf_component.yml`)
 - Host test suite: `test_core` (24 tests) and `test_json` (15 tests) with mock HAL — tests use only public API
-- CI workflow: host tests + PlatformIO cross-compilation for ESP32, ESP8266, STM32
+- CI workflow: host tests cross-compilation for ESP32, ESP8266, STM32
 - Examples: ESP32 ESP-IDF, Arduino basic, STM32 FreeRTOS
 
 [0.5.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.5.1
