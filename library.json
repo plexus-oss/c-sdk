@@ -1,6 +1,6 @@
 {
   "name": "plexus-sdk",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Minimal footprint C SDK for sending telemetry to Plexus from ESP32, STM32, and Arduino devices",
   "keywords": [
     "telemetry",

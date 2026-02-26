@@ -129,7 +129,7 @@ static void json_append_uint64(json_writer_t* w, uint64_t value) {
  *
  * Output format:
  * {
- *   "sdk": "c/0.5.0",
+ *   "sdk": "c/0.5.2",
  *   "points": [
  *     {
  *       "metric": "temperature",
@@ -149,7 +149,9 @@ int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_s
     json_writer_t w;
     json_init(&w, buf, buf_size);
 
-    json_append(&w, "{\"sdk\":\"c/" PLEXUS_SDK_VERSION "\",\"points\":[");
+    json_append(&w, "{\"sdk\":\"c/" PLEXUS_SDK_VERSION "\",\"source_id\":");
+    json_append_escaped(&w, client->source_id);
+    json_append(&w, ",\"points\":[");
 
     for (uint16_t i = 0; i < client->metric_count; i++) {
         const plexus_metric_t* m = &client->metrics[i];
@@ -186,10 +188,6 @@ int plexus_json_serialize(const plexus_client_t* client, char* buf, size_t buf_s
             json_append(&w, ",\"timestamp\":");
             json_append_uint64(&w, m->timestamp_ms);
         }
-
-        /* Source ID */
-        json_append(&w, ",\"source_id\":");
-        json_append_escaped(&w, client->source_id);
 
         /* Session ID (only when a session is active) */
         if (client->session_id[0] != '\0') {

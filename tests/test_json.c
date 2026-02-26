@@ -52,6 +52,7 @@ TEST(serialize_single_number) {
     ASSERT(strstr(buf, "\"points\":[") != NULL);
     ASSERT(strstr(buf, "\"metric\":\"temperature\"") != NULL);
     ASSERT(strstr(buf, "\"value\":72.5") != NULL);
+    /* source_id is now at top level, not per-point */
     ASSERT(strstr(buf, "\"source_id\":\"dev-001\"") != NULL);
 
     plexus_free(c);
@@ -243,6 +244,28 @@ TEST(serialize_with_tags) {
 }
 #endif
 
+TEST(serialize_source_id_at_top_level) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temperature", 72.5);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+
+    /* source_id should appear before "points" (top-level) */
+    char* sid_pos = strstr(buf, "\"source_id\":\"dev-001\"");
+    char* pts_pos = strstr(buf, "\"points\":[");
+    ASSERT(sid_pos != NULL);
+    ASSERT(pts_pos != NULL);
+    ASSERT(sid_pos < pts_pos);
+
+    /* source_id should NOT appear inside points */
+    char* inner = strstr(pts_pos, "\"source_id\"");
+    ASSERT(inner == NULL);
+
+    plexus_free(c);
+}
+
 TEST(serialize_buffer_too_small) {
     plexus_client_t* c = plexus_init("plx_key", "dev-001");
     plexus_send_number(c, "temperature", 72.5);
@@ -314,6 +337,7 @@ int main(void) {
     RUN(serialize_with_tags);
 #endif
 
+    RUN(serialize_source_id_at_top_level);
     RUN(serialize_buffer_too_small);
     RUN(serialize_null_client);
     RUN(serialize_empty);

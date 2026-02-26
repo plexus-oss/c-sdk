@@ -84,7 +84,7 @@ Data appears in real time at [app.plexus.company](https://app.plexus.company).
 
 ### Manual
 
-Copy `include/`, `src/`, and the appropriate `hal/` directory to your project.
+Copy `src/` and the appropriate `hal/` directory to your project.
 
 ## API
 
