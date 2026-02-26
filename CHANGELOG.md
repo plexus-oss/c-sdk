@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-02-20
+
+### Added
+
+- `PLEXUS_ERR_FORBIDDEN` error code — maps HTTP 403 (missing write scope), no retry
+- `PLEXUS_ERR_BILLING` error code — maps HTTP 402 (billing limit exceeded), no retry
+- Tests for 402/403 non-retry behavior and `plexus_strerror()` coverage
+
+### Fixed
+
+- **Dead code in ESP32 and STM32 HALs** — removed ~200 lines of `PLEXUS_ENABLE_COMMANDS` and `PLEXUS_ENABLE_AUTO_REGISTER` code that was left behind in the v0.5.0 strip-down
+- **Arduino example used wrong include** — `plexus.h` changed to `plexus.hpp` (required for the C++ `PlexusClient` class)
+- **`library.json` version** — now matches SDK version
+- **CONTRIBUTING.md** — updated test commands to use `ctest`, removed stale ESP-IDF Component Registry publishing reference
+
+### Changed
+
+- All HAL implementations (ESP32, STM32, template) now map HTTP 402 and 403 to dedicated error codes instead of falling through to `PLEXUS_ERR_NETWORK`
+- `plexus_flush()` no longer retries on 402 or 403 responses (previously retried uselessly via the `PLEXUS_ERR_NETWORK` fallback)
+- HAL porting template verification checklist updated with 402/403 mapping requirements
+
 ## [0.5.0] - 2026-02-19
 
 ### Breaking
@@ -192,6 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflow: host tests + PlatformIO cross-compilation for ESP32, ESP8266, STM32
 - Examples: ESP32 ESP-IDF, Arduino basic, STM32 FreeRTOS
 
+[0.5.1]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.5.1
 [0.5.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.5.0
 [0.4.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.4.0
 [0.3.0]: https://github.com/plexus-oss/c-sdk/releases/tag/v0.3.0

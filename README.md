@@ -167,6 +167,8 @@ if (err != PLEXUS_OK) {
 | `PLEXUS_ERR_BUFFER_FULL` | Metric buffer full — flush or increase `PLEXUS_MAX_METRICS` |
 | `PLEXUS_ERR_NETWORK`     | Connection failed — metrics stay in buffer for retry        |
 | `PLEXUS_ERR_AUTH`        | Bad API key (401) — no retry                                |
+| `PLEXUS_ERR_FORBIDDEN`   | Missing write scope (403) — no retry                        |
+| `PLEXUS_ERR_BILLING`     | Billing limit exceeded (402) — no retry                     |
 | `PLEXUS_ERR_RATE_LIMIT`  | Throttled (429) — auto-cooldown, retries after 30s          |
 | `PLEXUS_ERR_SERVER`      | Server error (5xx) — retried with backoff                   |
 
@@ -201,12 +203,24 @@ Override via compiler flags (`-DPLEXUS_MAX_METRICS=8`) or before including `plex
 
 ## Memory
 
-| Config                             | RAM per client |
-| ---------------------------------- | -------------- |
-| Default (all features, 32 metrics) | ~5KB           |
-| Minimal (numbers only, 8 metrics)  | ~1.5KB         |
+RAM usage is dominated by three components:
 
-Use `plexus_client_size()` or `sizeof(plexus_client_t)` to get the exact size for your build.
+| Component | Default | Minimal | Scales with |
+|-----------|---------|---------|-------------|
+| Metrics buffer | largest | smallest | `PLEXUS_MAX_METRICS` × (name + value + timestamp + tags) |
+| JSON buffer | 2048 B | 512 B | `PLEXUS_JSON_BUFFER_SIZE` |
+| Fixed fields | ~512 B | ~320 B | API key, source ID, endpoint, session, state |
+
+| Config | Total RAM per client |
+|--------|----------------------|
+| Default (all features, 32 metrics) | ~5 KB |
+| Minimal (numbers only, 8 metrics) | ~1.5 KB |
+
+Disabling tags (`PLEXUS_ENABLE_TAGS=0`) and string values (`PLEXUS_ENABLE_STRING_VALUES=0`) shrinks each metric slot significantly — the value union drops from 128 bytes to 8 bytes.
+
+Get the exact size for your build:
+
+    printf("Client size: %zu bytes\n", sizeof(plexus_client_t));
 
 ## Platform Support
 
@@ -225,6 +239,24 @@ The STM32 HAL defaults to `huart2` (debug UART) and `hrtc` (RTC). Override for y
 -DPLEXUS_STM32_RTC=hrtc1
 ```
 
+### STM32 HTTPS setup
+
+The STM32 HAL ships with plain HTTP. For production, add HTTPS via mbedTLS + LwIP's altcp_tls layer:
+
+**1. Enable mbedTLS** in STM32CubeMX → Middleware → mbedTLS. Enable at minimum: `MBEDTLS_SSL_CLI_C`, `MBEDTLS_SSL_TLS_C`, `MBEDTLS_NET_C`.
+
+**2. Add to `lwipopts.h`:**
+
+    #define LWIP_ALTCP              1
+    #define LWIP_ALTCP_TLS          1
+    #define LWIP_ALTCP_TLS_MBEDTLS  1
+
+**3. Replace socket calls** in `plexus_hal_stm32.c` with `altcp` equivalents — `altcp_new`, `altcp_connect`, `altcp_write`, `altcp_output`. See the `altcp_tls` section in the [LwIP docs](https://www.nongnu.org/lwip/2_1_x/group__altcp__tls.html).
+
+**4. Load root CA certificate** for `app.plexus.company` to verify the server.
+
+Alternatively, use a TLS-terminating reverse proxy (e.g., nginx) on your network edge and keep the HAL as-is with HTTP.
+
 ## Persistent Buffering
 
 Unsent telemetry survives reboots when enabled:
@@ -239,13 +271,25 @@ Uses a ring buffer with `PLEXUS_PERSIST_MAX_BATCHES` slots (default 8). Oldest b
 
 ## Thread Safety
 
-**Not thread-safe by default.** All calls to a given client must come from the same thread/task. Multiple clients in separate tasks is safe — each client has its own buffer with no global state.
+**Not thread-safe by default.** Confine all calls to a given client to a single thread/task.
 
-Enable `-DPLEXUS_ENABLE_THREAD_SAFE=1` for mutex-protected access from multiple threads.
+- **One client per task** (default): No flag needed. Each client has its own buffers and no global state, so separate clients in separate tasks are always safe.
+- **Shared client across tasks**: Enable `-DPLEXUS_ENABLE_THREAD_SAFE=1`. This wraps all API calls in a platform mutex (FreeRTOS `osMutex` on STM32/ESP32, `xSemaphoreCreateRecursiveMutex` on ESP-IDF). The calling task blocks if another task holds the lock.
+- **`plexus_init_static()` with a shared buffer**: The buffer must not be accessed by multiple tasks during `plexus_init_static()`. After initialization, access is governed by the thread-safe flag above.
 
 ## Blocking Behavior
 
-`plexus_flush()` retries with exponential backoff on failure. Worst case: ~14 seconds blocking (3 retries, 8-second max backoff). On FreeRTOS, the calling task yields during delays. On bare-metal Arduino, `delay()` blocks everything. Use `plexus_tick()` from your main loop for non-blocking auto-flush.
+`plexus_flush()` blocks while sending. Timing depends on the outcome:
+
+| Scenario | Duration |
+|----------|----------|
+| Success (first attempt) | < 1 second |
+| Transient failure + retry | 1–5 seconds |
+| All retries fail (worst case) | ~14 seconds |
+
+The worst case is 3 retries with exponential backoff (500ms → 1s → 2s → ... up to 8s max, plus ±25% jitter). On FreeRTOS, the calling task yields during delays. On bare-metal Arduino, `delay()` blocks everything.
+
+For non-blocking operation, use `plexus_tick()` from your main loop — it only flushes when the auto-flush interval or count threshold is reached, and returns immediately otherwise.
 
 ## Porting to New Platforms
 

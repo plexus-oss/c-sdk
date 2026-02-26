@@ -6,7 +6,7 @@
  *
  * Quick start:
  *   1. Set WIFI_SSID, WIFI_PASSWORD, and PLEXUS_API_KEY below
- *   2. Upload via Arduino IDE or PlatformIO
+ *   2. Upload 
  *   3. Watch telemetry appear in your Plexus dashboard
  */
 
@@ -18,7 +18,7 @@
   #include <WiFi.h>
 #endif
 
-#include "plexus.h"
+#include "plexus.hpp"
 
 /* ========================================================================= */
 /* Configuration - Update these values                                       */

@@ -112,6 +112,8 @@ static const char* s_error_messages[] = {
     "No data to flush",
     "Network error",
     "Authentication failed",
+    "Forbidden",
+    "Billing limit exceeded",
     "Rate limited",
     "Server error",
     "JSON serialization error",
@@ -756,11 +758,15 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
             return PLEXUS_OK;
         }
 
-        /* Don't retry on auth errors */
-        if (err == PLEXUS_ERR_AUTH) {
+        /* Don't retry on auth, forbidden, or billing errors */
+        if (err == PLEXUS_ERR_AUTH || err == PLEXUS_ERR_FORBIDDEN) {
 #if PLEXUS_ENABLE_STATUS_CALLBACK
             notify_status(client, PLEXUS_STATUS_AUTH_FAILED);
 #endif
+            break;
+        }
+
+        if (err == PLEXUS_ERR_BILLING) {
             break;
         }
 
@@ -787,7 +793,8 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
 
     /* All retries exhausted (or non-retryable error) */
 #if PLEXUS_ENABLE_STATUS_CALLBACK
-    if (err != PLEXUS_ERR_AUTH && err != PLEXUS_ERR_RATE_LIMIT) {
+    if (err != PLEXUS_ERR_AUTH && err != PLEXUS_ERR_FORBIDDEN &&
+        err != PLEXUS_ERR_BILLING && err != PLEXUS_ERR_RATE_LIMIT) {
         notify_status(client, PLEXUS_STATUS_DISCONNECTED);
     }
 #endif

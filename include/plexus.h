@@ -30,7 +30,7 @@ extern "C" {
 /* Version                                                                   */
 /* ------------------------------------------------------------------------- */
 
-#define PLEXUS_SDK_VERSION "0.5.0"
+#define PLEXUS_SDK_VERSION "0.5.1"
 
 /* ------------------------------------------------------------------------- */
 /* Compiler attributes                                                       */
@@ -57,6 +57,8 @@ typedef enum {
     PLEXUS_ERR_NO_DATA,         /* No data to flush */
     PLEXUS_ERR_NETWORK,         /* Network/HTTP error */
     PLEXUS_ERR_AUTH,            /* Authentication failed (401) */
+    PLEXUS_ERR_FORBIDDEN,       /* Forbidden — missing scope (403) */
+    PLEXUS_ERR_BILLING,         /* Billing limit exceeded (402) */
     PLEXUS_ERR_RATE_LIMIT,      /* Rate limited (429) */
     PLEXUS_ERR_SERVER,          /* Server error (5xx) */
     PLEXUS_ERR_JSON,            /* JSON serialization error */

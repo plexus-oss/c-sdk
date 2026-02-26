@@ -153,6 +153,8 @@ TEST(strerror_known_codes) {
     ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_NULL_PTR), "Null pointer") == 0);
     ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_BUFFER_FULL), "Buffer full") == 0);
     ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_NETWORK), "Network error") == 0);
+    ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_FORBIDDEN), "Forbidden") == 0);
+    ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_BILLING), "Billing limit exceeded") == 0);
     ASSERT(strcmp(plexus_strerror(PLEXUS_ERR_INVALID_ARG), "Invalid argument") == 0);
 }
 
@@ -320,6 +322,32 @@ TEST(flush_auth_error_no_retry) {
     plexus_err_t err = plexus_flush(c);
     ASSERT(err == PLEXUS_ERR_AUTH);
     ASSERT(mock_hal_post_call_count() == 1);
+
+    plexus_free(c);
+}
+
+TEST(flush_billing_error_no_retry) {
+    mock_hal_set_next_post_result(PLEXUS_ERR_BILLING);
+
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send(c, "temp", 1.0);
+
+    plexus_err_t err = plexus_flush(c);
+    ASSERT(err == PLEXUS_ERR_BILLING);
+    ASSERT(mock_hal_post_call_count() == 1); /* No retries on 402 */
+
+    plexus_free(c);
+}
+
+TEST(flush_forbidden_error_no_retry) {
+    mock_hal_set_next_post_result(PLEXUS_ERR_FORBIDDEN);
+
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send(c, "temp", 1.0);
+
+    plexus_err_t err = plexus_flush(c);
+    ASSERT(err == PLEXUS_ERR_FORBIDDEN);
+    ASSERT(mock_hal_post_call_count() == 1); /* No retries on 403 */
 
     plexus_free(c);
 }
@@ -645,6 +673,8 @@ int main(void) {
     RUN(flush_network_error_retries);
     RUN(flush_uses_exponential_backoff);
     RUN(flush_auth_error_no_retry);
+    RUN(flush_billing_error_no_retry);
+    RUN(flush_forbidden_error_no_retry);
     RUN(flush_rate_limit_enters_cooldown);
 
     /* Tick */

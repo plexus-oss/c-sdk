@@ -14,8 +14,7 @@
 ```bash
 cmake -B build-test tests/
 cmake --build build-test/
-./build-test/test_core
-./build-test/test_json
+ctest --test-dir build-test --output-on-failure
 ```
 
 ### ESP32 via ESP-IDF
@@ -69,10 +68,10 @@ pio ci \
 
 1. Fork the repository and create a feature branch
 2. Make your changes
-3. Ensure all tests pass (`./build-test/test_core && ./build-test/test_json`)
+3. Ensure all tests pass (`ctest --test-dir build-test --output-on-failure`)
 4. If you add new HAL functions, stub them in `tests/mock_hal.c`
 5. Add Doxygen comments to any new public API functions
-6. Add an entry to `CHANGELOG.md` under `[Unreleased]`
+6. Add an entry to `CHANGELOG.md` under the next version heading
 7. Open a PR against `main`
 
 ## Project Structure
@@ -122,10 +121,4 @@ open docs/html/index.html
 
 ```bash
 pio pkg publish
-```
-
-### ESP-IDF Component Registry
-
-```bash
-compote component upload
 ```

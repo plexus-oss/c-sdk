@@ -50,11 +50,13 @@
  *   - MUST send body as-is (it is already valid JSON)
  *   - MUST set headers: Content-Type: application/json, x-api-key: <api_key>
  *   - MUST set header: User-Agent: <user_agent>
- *   - MUST return PLEXUS_OK        on HTTP 2xx
- *   - MUST return PLEXUS_ERR_AUTH   on HTTP 401
+ *   - MUST return PLEXUS_OK             on HTTP 2xx
+ *   - MUST return PLEXUS_ERR_AUTH       on HTTP 401
+ *   - MUST return PLEXUS_ERR_BILLING    on HTTP 402
+ *   - MUST return PLEXUS_ERR_FORBIDDEN  on HTTP 403
  *   - MUST return PLEXUS_ERR_RATE_LIMIT on HTTP 429
- *   - MUST return PLEXUS_ERR_SERVER on HTTP 5xx
- *   - MUST return PLEXUS_ERR_NETWORK on connection failure or other errors
+ *   - MUST return PLEXUS_ERR_SERVER     on HTTP 5xx
+ *   - MUST return PLEXUS_ERR_NETWORK    on connection failure or other errors
  *   - SHOULD respect PLEXUS_HTTP_TIMEOUT_MS for connect/read timeouts
  *
  * @param url        Full URL (e.g., "https://app.plexus.company/api/ingest")
@@ -251,6 +253,8 @@ void plexus_hal_mutex_destroy(void* mutex) {
  * Before submitting your HAL implementation, verify:
  *
  * [ ] plexus_hal_http_post returns PLEXUS_ERR_AUTH on HTTP 401
+ * [ ] plexus_hal_http_post returns PLEXUS_ERR_BILLING on HTTP 402
+ * [ ] plexus_hal_http_post returns PLEXUS_ERR_FORBIDDEN on HTTP 403
  * [ ] plexus_hal_http_post returns PLEXUS_ERR_RATE_LIMIT on HTTP 429
  * [ ] plexus_hal_http_post returns PLEXUS_ERR_SERVER on HTTP 5xx
  * [ ] plexus_hal_http_post returns PLEXUS_ERR_NETWORK on connection failure
