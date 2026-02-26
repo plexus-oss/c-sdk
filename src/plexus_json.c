@@ -129,7 +129,7 @@ static void json_append_uint64(json_writer_t* w, uint64_t value) {
  *
  * Output format:
  * {
- *   "sdk": "c/0.5.2",
+ *   "sdk": "c/0.5.4",
  *   "points": [
  *     {
  *       "metric": "temperature",
