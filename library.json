@@ -46,7 +46,7 @@
       "-<hal/stm32/>",
       "-<hal/template/>"
     ],
-    "includeDir": "include",
+    "includeDir": "src",
     "flags": [
       "-DPLEXUS_MAX_METRICS=32",
       "-DPLEXUS_JSON_BUFFER_SIZE=2048"
@@ -54,7 +54,8 @@
   },
   "export": {
     "include": [
-      "include/*",
+      "src/*.h",
+      "src/*.hpp",
       "src/*",
       "hal/*",
       "examples/*",

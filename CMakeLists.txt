@@ -23,7 +23,6 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
             "hal/esp32/plexus_hal_esp32.c"
             "hal/esp32/plexus_hal_storage_esp32.c"
         INCLUDE_DIRS
-            "include"
             "src"
         REQUIRES
             esp_http_client
@@ -67,7 +66,7 @@ endif()
 add_library(plexus STATIC ${PLEXUS_SOURCES})
 
 target_include_directories(plexus PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:include>
 )
 
@@ -97,9 +96,9 @@ install(TARGETS plexus
     LIBRARY DESTINATION lib
 )
 
-install(DIRECTORY include/
+install(DIRECTORY src/
     DESTINATION include
-    FILES_MATCHING PATTERN "*.h"
+    FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
 )
 
 # Examples
