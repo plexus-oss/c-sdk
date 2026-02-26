@@ -49,8 +49,8 @@ void setup() {
 }
 
 void loop() {
-    px.send("temperature", analogRead(A0) * 0.1);
-    px.send("humidity", analogRead(A1) * 0.2);
+    px.send("temperature", analogRead(34) * 0.1);
+    px.send("humidity", analogRead(35) * 0.2);
     px.tick();    // auto-flushes every 5 seconds
     delay(1000);
 }
@@ -120,6 +120,8 @@ plexus_client_t* px = plexus_init_static(&buf, sizeof(buf), "plx_key", "source-i
 
 // plexus_free() is safe on both: it only calls free() on heap-allocated clients.
 ```
+
+**`source_id` must be URL-safe:** only `a-z A-Z 0-9 . _ -` are allowed (no spaces). Use the slug shown in the Plexus dashboard, not the display name. `plexus_init` returns `NULL` if the source ID contains invalid characters.
 
 ### Send
 
