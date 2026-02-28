@@ -1,6 +1,8 @@
 # Plexus C SDK
 
-Send telemetry from ESP32, STM32, and Arduino to [Plexus](https://plexus.company) in 3 lines of code.
+**Minimal-footprint C library for embedded IoT telemetry.** Send sensor data from ESP32, STM32, and Arduino to [Plexus](https://plexus.company) — the HardwareOps platform for real-time observability and fleet management of microcontrollers and embedded devices.
+
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ```c
 plexus_client_t* px = plexus_init("plx_your_api_key", "esp32-001");
@@ -8,7 +10,7 @@ plexus_send(px, "temperature", 72.5);
 plexus_flush(px);
 ```
 
-**~1.5KB RAM minimal, ~17KB default** | Zero dependencies | Retry + backoff + rate-limit built in
+**~1.5 KB RAM minimal, ~17 KB default** | Zero dependencies | Retry + backoff + rate-limit built in
 
 ## Quick Start
 
