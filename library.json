@@ -1,6 +1,6 @@
 {
-  "name": "plexus-sdk",
-  "version": "0.5.5",
+  "name": "PlexusSDK",
+  "version": "0.5.6",
   "description": "Minimal footprint IoT telemetry SDK. Stream sensor data to a real-time dashboard from ESP32, STM32, and Arduino. ~1.5KB RAM, zero dependencies, built-in retry and buffering.",
   "keywords": [
     "telemetry",
