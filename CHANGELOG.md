@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Default RAM footprint reduced from ~17KB to ~5KB (all remaining features enabled)
+- Default RAM footprint is ~17KB (all features enabled), ~1.5KB minimal (numbers only)
 - ESP-IDF component no longer requires `mqtt` or `driver` dependencies
 
 ## [0.4.0] - 2026-02-19

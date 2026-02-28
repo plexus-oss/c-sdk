@@ -8,7 +8,7 @@ plexus_send(px, "temperature", 72.5);
 plexus_flush(px);
 ```
 
-**~1.5KB RAM minimal, ~5KB default** | Zero dependencies | Retry + backoff + rate-limit built in
+**~1.5KB RAM minimal, ~17KB default** | Zero dependencies | Retry + backoff + rate-limit built in
 
 ## Quick Start
 
@@ -197,7 +197,7 @@ RAM usage is dominated by three components:
 
 | Config                             | Total RAM per client |
 | ---------------------------------- | -------------------- |
-| Default (all features, 32 metrics) | ~5 KB                |
+| Default (all features, 32 metrics) | ~17 KB               |
 | Minimal (numbers only, 8 metrics)  | ~1.5 KB              |
 
 Disabling tags (`PLEXUS_ENABLE_TAGS=0`) and string values (`PLEXUS_ENABLE_STRING_VALUES=0`) shrinks each metric slot significantly — the value union drops from 128 bytes to 8 bytes.

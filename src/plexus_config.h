@@ -7,7 +7,7 @@
  *
  * Memory sizing guide (approximate sizeof(plexus_client_t)):
  *
- *   Default config:                    ~5 KB
+ *   Default config:                   ~17 KB
  *   Minimal config (numbers only):    ~1.5 KB
  *     -DPLEXUS_MAX_METRICS=8
  *     -DPLEXUS_ENABLE_TAGS=0

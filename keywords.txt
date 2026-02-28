@@ -1,0 +1,74 @@
+# Plexus SDK - Arduino IDE Syntax Highlighting
+# https://arduino.github.io/arduino-cli/latest/library-specification/#keywords
+
+# Classes (KEYWORD1 = orange)
+PlexusClient	KEYWORD1
+
+# Methods (KEYWORD2 = brown)
+send	KEYWORD2
+sendNumber	KEYWORD2
+sendNumberTs	KEYWORD2
+sendString	KEYWORD2
+sendBool	KEYWORD2
+flush	KEYWORD2
+tick	KEYWORD2
+pendingCount	KEYWORD2
+clear	KEYWORD2
+isValid	KEYWORD2
+setEndpoint	KEYWORD2
+setFlushInterval	KEYWORD2
+setFlushCount	KEYWORD2
+onStatusChange	KEYWORD2
+getStatus	KEYWORD2
+handle	KEYWORD2
+
+# C API functions (KEYWORD2)
+plexus_init	KEYWORD2
+plexus_init_static	KEYWORD2
+plexus_free	KEYWORD2
+plexus_send	KEYWORD2
+plexus_send_number	KEYWORD2
+plexus_send_number_ts	KEYWORD2
+plexus_send_string	KEYWORD2
+plexus_send_bool	KEYWORD2
+plexus_send_number_tagged	KEYWORD2
+plexus_flush	KEYWORD2
+plexus_tick	KEYWORD2
+plexus_pending_count	KEYWORD2
+plexus_clear	KEYWORD2
+plexus_total_sent	KEYWORD2
+plexus_total_errors	KEYWORD2
+plexus_session_start	KEYWORD2
+plexus_session_end	KEYWORD2
+plexus_session_id	KEYWORD2
+plexus_set_endpoint	KEYWORD2
+plexus_set_flush_interval	KEYWORD2
+plexus_set_flush_count	KEYWORD2
+plexus_on_status_change	KEYWORD2
+plexus_get_status	KEYWORD2
+plexus_client_size	KEYWORD2
+plexus_strerror	KEYWORD2
+plexus_version	KEYWORD2
+
+# Constants (LITERAL1 = blue)
+PLEXUS_OK	LITERAL1
+PLEXUS_ERR_NULL_PTR	LITERAL1
+PLEXUS_ERR_BUFFER_FULL	LITERAL1
+PLEXUS_ERR_STRING_TOO_LONG	LITERAL1
+PLEXUS_ERR_NO_DATA	LITERAL1
+PLEXUS_ERR_NETWORK	LITERAL1
+PLEXUS_ERR_AUTH	LITERAL1
+PLEXUS_ERR_FORBIDDEN	LITERAL1
+PLEXUS_ERR_BILLING	LITERAL1
+PLEXUS_ERR_RATE_LIMIT	LITERAL1
+PLEXUS_ERR_SERVER	LITERAL1
+PLEXUS_ERR_JSON	LITERAL1
+PLEXUS_ERR_NOT_INITIALIZED	LITERAL1
+PLEXUS_ERR_HAL	LITERAL1
+PLEXUS_ERR_INVALID_ARG	LITERAL1
+PLEXUS_STATUS_CONNECTED	LITERAL1
+PLEXUS_STATUS_DISCONNECTED	LITERAL1
+PLEXUS_STATUS_AUTH_FAILED	LITERAL1
+PLEXUS_STATUS_RATE_LIMITED	LITERAL1
+PLEXUS_CLIENT_STATIC_SIZE	LITERAL1
+PLEXUS_SDK_VERSION	LITERAL1

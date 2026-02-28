@@ -1,7 +1,7 @@
 {
   "name": "plexus-sdk",
-  "version": "0.5.4",
-  "description": "Minimal footprint C SDK for sending telemetry to Plexus from ESP32, STM32, and Arduino devices",
+  "version": "0.5.5",
+  "description": "Minimal footprint IoT telemetry SDK. Stream sensor data to a real-time dashboard from ESP32, STM32, and Arduino. ~1.5KB RAM, zero dependencies, built-in retry and buffering.",
   "keywords": [
     "telemetry",
     "iot",
@@ -9,7 +9,11 @@
     "esp32",
     "stm32",
     "arduino",
-    "monitoring"
+    "monitoring",
+    "dashboard",
+    "sensors",
+    "bme280",
+    "real-time"
   ],
   "repository": {
     "type": "git",
@@ -33,7 +37,7 @@
     "espressif8266",
     "ststm32"
   ],
-  "headers": "plexus.h",
+  "headers": "plexus.hpp",
   "build": {
     "srcDir": ".",
     "srcFilter": [
@@ -66,11 +70,29 @@
   },
   "examples": [
     {
+      "name": "BasicTelemetry",
+      "base": "examples/BasicTelemetry",
+      "files": ["BasicTelemetry.ino"]
+    },
+    {
+      "name": "BME280_Dashboard",
+      "base": "examples/BME280_Dashboard",
+      "files": ["BME280_Dashboard.ino"]
+    },
+    {
+      "name": "WiFiReconnect",
+      "base": "examples/WiFiReconnect",
+      "files": ["WiFiReconnect.ino"]
+    },
+    {
+      "name": "SessionRecording",
+      "base": "examples/SessionRecording",
+      "files": ["SessionRecording.ino"]
+    },
+    {
       "name": "esp32_basic",
       "base": "examples/esp32_basic",
-      "files": [
-        "main.c"
-      ]
+      "files": ["main.c"]
     }
   ],
   "dependencies": {}
