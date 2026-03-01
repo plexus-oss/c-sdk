@@ -299,4 +299,4 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 ## Support
 
 - Issues: https://github.com/plexus-oss/c-sdk/issues
-- Discord: https://discord.gg/plexus
+- Discord: https://discord.gg/bGMhxm7fRy
