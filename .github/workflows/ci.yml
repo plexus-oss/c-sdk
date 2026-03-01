@@ -34,3 +34,34 @@ jobs:
 
       - name: Run tests (minimal)
         run: ctest --test-dir build-test-min --output-on-failure
+
+  version-check:
+    name: Version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version consistency
+        run: |
+          HEADER_VERSION=$(grep -oP 'PLEXUS_SDK_VERSION\s+"\K[^"]+' src/plexus.h)
+          CMAKE_VERSION=$(grep -oP 'VERSION\s+\K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt | head -1)
+          JSON_VERSION=$(python3 -c "import json; print(json.load(open('library.json'))['version'])")
+          PROPS_VERSION=$(grep -oP '^version=\K.*' library.properties)
+
+          echo "src/plexus.h:       $HEADER_VERSION"
+          echo "CMakeLists.txt:     $CMAKE_VERSION"
+          echo "library.json:       $JSON_VERSION"
+          echo "library.properties: $PROPS_VERSION"
+
+          MISMATCH=0
+          for v in "$CMAKE_VERSION" "$JSON_VERSION" "$PROPS_VERSION"; do
+            if [ "$v" != "$HEADER_VERSION" ]; then
+              MISMATCH=1
+            fi
+          done
+
+          if [ "$MISMATCH" -eq 1 ]; then
+            echo "::error::Version mismatch across files! All must match src/plexus.h ($HEADER_VERSION)"
+            exit 1
+          fi
+          echo "All versions match: $HEADER_VERSION"
