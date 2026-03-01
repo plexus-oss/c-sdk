@@ -33,7 +33,7 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
 endif()
 
 # Standalone CMake build
-project(plexus-sdk VERSION 0.5.4 LANGUAGES C CXX)
+project(plexus-sdk VERSION 0.5.6 LANGUAGES C CXX)
 
 # Options
 option(PLEXUS_BUILD_EXAMPLES "Build example applications" OFF)
