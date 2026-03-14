@@ -297,17 +297,60 @@ void app_main(void) {
     ESP_LOGI(TAG, "║  Plexus Flashable Firmware v%s     ║", plexus_version());
     ESP_LOGI(TAG, "╚═══════════════════════════════════════╝");
 
+    /*
+     * Config window: listen for PLEXUS:PING on serial for 5 seconds.
+     * If received, enter serial config mode (even if NVS config exists).
+     * This allows the browser to reconfigure the device without erasing flash.
+     */
+    printf("PLEXUS:READY\n");
+    fflush(stdout);
+    ESP_LOGI(TAG, "Listening for serial config (5s window)...");
+
+    {
+        bool ping_received = false;
+        char ping_buf[64] = {0};
+        int ping_pos = 0;
+        int64_t window_start = esp_timer_get_time() / 1000;
+
+        while ((esp_timer_get_time() / 1000 - window_start) < 5000) {
+            uint8_t byte;
+            int len = uart_read_bytes(UART_NUM, &byte, 1, pdMS_TO_TICKS(50));
+            if (len <= 0) continue;
+
+            if (byte == '\n' || byte == '\r') {
+                if (ping_pos > 0) {
+                    ping_buf[ping_pos] = '\0';
+                    if (strstr(ping_buf, "PLEXUS:") != NULL) {
+                        ping_received = true;
+                        /* Push the line back by processing it in serial_config_mode */
+                        break;
+                    }
+                    ping_pos = 0;
+                }
+            } else if (ping_pos < (int)sizeof(ping_buf) - 1) {
+                ping_buf[ping_pos++] = (char)byte;
+            }
+        }
+
+        if (ping_received) {
+            ESP_LOGI(TAG, "Serial config request received");
+            led_start_blink(100);
+            if (serial_config_mode()) {
+                esp_restart();
+            }
+        }
+    }
+
     /* Read configuration from NVS */
     plexus_nvs_config_t cfg;
     if (!plexus_nvs_config_read(&cfg) || !cfg.valid) {
         ESP_LOGW(TAG, "No config found — entering serial config mode");
-        led_start_blink(100);  /* Fast blink = waiting for config */
+        led_start_blink(100);
 
         if (serial_config_mode()) {
-            esp_restart();  /* Config saved — reboot into normal mode */
+            esp_restart();
         }
 
-        /* Timeout — no config received, just keep blinking */
         ESP_LOGE(TAG, "No config received. Flash again with the Plexus web UI.");
         while (1) { vTaskDelay(pdMS_TO_TICKS(1000)); }
     }
