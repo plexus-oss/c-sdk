@@ -173,34 +173,32 @@ void app_main(void) {
     ESP_LOGI(TAG, "╚═══════════════════════════════════════╝");
 
     /*
-     * Read config from the plexus_cfg partition.
+     * Config loading — two sources, checked in order:
      *
-     * The browser writes plain text (key=value\n pairs) directly to the
-     * plexus_cfg flash partition at 0x11000. No NVS format, no serial
-     * config — just raw text written during the flash step.
+     * 1. Plain text in plexus_cfg flash partition (from browser flash).
+     *    MUST be checked FIRST — before NVS init touches the partition.
+     *    If found: import to NVS, erase raw partition, reboot.
      *
-     * On first boot: read plain text → write to NVS → reboot.
-     * On subsequent boots: read from NVS directly (fast path).
+     * 2. NVS namespace "plexus_cfg" (from previous import or manual config).
      */
-    plexus_nvs_config_t cfg;
-    bool cfg_ok = plexus_nvs_config_read(&cfg) && cfg.valid;
 
-    if (!cfg_ok) {
-        /* Try reading plain-text config from the raw flash partition */
+    /* Step 1: Check for plain-text config in raw flash (before NVS touches it) */
+    {
         const esp_partition_t* part = esp_partition_find_first(
             ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "plexus_cfg");
 
         if (part) {
             char raw[1024] = {0};
             if (esp_partition_read(part, 0, raw, sizeof(raw) - 1) == ESP_OK &&
-                raw[0] != '\xff' && raw[0] != '\0') {
+                raw[0] != '\xff' && raw[0] != '\0' &&
+                strchr(raw, '=') != NULL) {  /* Sanity: must contain at least one '=' */
 
                 ESP_LOGI(TAG, "Found plain-text config in flash — importing to NVS");
 
-                /* Parse key=value lines and write to NVS */
                 nvs_handle_t nvs;
                 if (nvs_open("plexus_cfg", NVS_READWRITE, &nvs) == ESP_OK) {
-                    char* line = strtok(raw, "\n");
+                    char* saveptr = NULL;
+                    char* line = strtok_r(raw, "\n", &saveptr);
                     int count = 0;
                     while (line) {
                         char* eq = strchr(line, '=');
@@ -208,7 +206,6 @@ void app_main(void) {
                             *eq = '\0';
                             const char* key = line;
                             const char* val = eq + 1;
-                            /* Trim \r if present */
                             size_t val_len = strlen(val);
                             if (val_len > 0 && val[val_len - 1] == '\r') {
                                 ((char*)val)[val_len - 1] = '\0';
@@ -218,13 +215,12 @@ void app_main(void) {
                                      strcmp(key, "wifi_pass") == 0 ? "****" : val);
                             count++;
                         }
-                        line = strtok(NULL, "\n");
+                        line = strtok_r(NULL, "\n", &saveptr);
                     }
                     nvs_commit(nvs);
                     nvs_close(nvs);
 
                     if (count > 0) {
-                        /* Erase the raw partition so we don't re-import on next boot */
                         esp_partition_erase_range(part, 0, part->size);
                         ESP_LOGI(TAG, "Imported %d keys — rebooting with new config", count);
                         vTaskDelay(pdMS_TO_TICKS(200));
@@ -233,8 +229,11 @@ void app_main(void) {
                 }
             }
         }
+    }
 
-        /* No config anywhere */
+    /* Step 2: Read config from NVS */
+    plexus_nvs_config_t cfg;
+    if (!plexus_nvs_config_read(&cfg) || !cfg.valid) {
         ESP_LOGE(TAG, "No config found! Flash this device using the Plexus web UI.");
         led_start_blink(100);
         while (1) { vTaskDelay(pdMS_TO_TICKS(1000)); }
