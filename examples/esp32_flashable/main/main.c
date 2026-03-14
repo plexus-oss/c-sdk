@@ -2,21 +2,24 @@
  * @file main.c
  * @brief Browser-flashable ESP32 firmware for Plexus
  *
- * This firmware is designed to be flashed via the browser using ESP Web Tools.
- * All configuration (API key, source ID, WiFi credentials) is read from a
- * dedicated NVS partition ("plexus_cfg") that the browser generates and
- * flashes alongside this binary.
+ * Two boot paths:
+ *   1. Config exists in NVS → connect WiFi → stream telemetry
+ *   2. No config → enter serial config mode → receive config from browser
+ *      over UART → write to NVS → reboot into path 1
  *
- * Telemetry sent:
- *   - cpu_temp_c     Internal temperature sensor (ESP32 only, not S2/S3/C3)
- *   - free_heap      Free heap memory in bytes
- *   - uptime_s       Seconds since boot
- *   - wifi_rssi      WiFi signal strength in dBm
+ * Serial config protocol (text lines at 115200 baud):
+ *   Browser sends:  PLEXUS:key=value\n  (one per line)
+ *   Required keys:  api_key, source_id, wifi_ssid, wifi_pass
+ *   Optional keys:  endpoint
+ *   Finish with:    PLEXUS:COMMIT\n
+ *   Device replies: PLEXUS:OK\n  after each line
+ *                   PLEXUS:READY\n  when entering config mode
+ *                   PLEXUS:SAVED\n  after commit (then reboots)
  *
- * LED status (GPIO 2 — built-in LED on most ESP32 dev boards):
- *   - Fast blink (100ms) = no config found in NVS
- *   - Slow blink (500ms) = connecting to WiFi / Plexus
- *   - Solid ON           = streaming telemetry
+ * LED status (GPIO 2):
+ *   Fast blink (100ms) = waiting for serial config
+ *   Slow blink (500ms) = connecting to WiFi
+ *   Solid ON           = streaming telemetry
  */
 
 #include <stdio.h>
@@ -30,22 +33,19 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "driver/gpio.h"
+#include "driver/uart.h"
 
 #include "plexus.h"
 #include "plexus_hal_nvs_config.h"
 
 static const char* TAG = "plexus_flash";
 
-/* LED on GPIO 2 (built-in blue LED on most ESP32 boards) */
 #define LED_GPIO GPIO_NUM_2
-
-/* WiFi event group */
-static EventGroupHandle_t s_wifi_event_group;
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
-static int s_retry_num = 0;
-#define MAX_RETRY 10
+#define UART_NUM UART_NUM_0
+#define SERIAL_CONFIG_TIMEOUT_MS 60000
+#define SERIAL_BUF_SIZE 256
 
 /* ========================================================================= */
 /* LED control                                                               */
@@ -61,6 +61,8 @@ static void led_set(bool on) {
     gpio_set_level(LED_GPIO, on ? 1 : 0);
 }
 
+static TaskHandle_t s_blink_task = NULL;
+
 static void led_blink_task(void* param) {
     int period_ms = (int)(intptr_t)param;
     while (1) {
@@ -71,27 +73,145 @@ static void led_blink_task(void* param) {
     }
 }
 
-static TaskHandle_t s_blink_task = NULL;
-
 static void led_start_blink(int period_ms) {
-    if (s_blink_task) {
-        vTaskDelete(s_blink_task);
-        s_blink_task = NULL;
-    }
-    xTaskCreate(led_blink_task, "blink", 1024, (void*)(intptr_t)period_ms,
-                1, &s_blink_task);
+    if (s_blink_task) { vTaskDelete(s_blink_task); s_blink_task = NULL; }
+    xTaskCreate(led_blink_task, "blink", 1024, (void*)(intptr_t)period_ms, 1, &s_blink_task);
 }
 
 static void led_stop_blink(void) {
-    if (s_blink_task) {
-        vTaskDelete(s_blink_task);
-        s_blink_task = NULL;
+    if (s_blink_task) { vTaskDelete(s_blink_task); s_blink_task = NULL; }
+}
+
+/* ========================================================================= */
+/* Serial config mode                                                        */
+/* ========================================================================= */
+
+/** Write a config key-value pair to NVS */
+static bool nvs_write_config(const char* key, const char* value) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("plexus_cfg", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS open failed: %s", esp_err_to_name(err));
+        return false;
     }
+    err = nvs_set_str(handle, key, value);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS set '%s' failed: %s", key, esp_err_to_name(err));
+        nvs_close(handle);
+        return false;
+    }
+    nvs_commit(handle);
+    nvs_close(handle);
+    return true;
+}
+
+/**
+ * Enter serial config mode. Listens on UART0 for PLEXUS:key=value lines.
+ * Returns true if config was saved and device should reboot.
+ */
+static bool serial_config_mode(void) {
+    ESP_LOGI(TAG, "Entering serial config mode (waiting %ds)...", SERIAL_CONFIG_TIMEOUT_MS / 1000);
+
+    /* Signal readiness to the browser */
+    printf("PLEXUS:READY\n");
+    fflush(stdout);
+
+    char line[SERIAL_BUF_SIZE];
+    int line_pos = 0;
+    bool has_api_key = false;
+    bool has_source_id = false;
+    bool has_wifi_ssid = false;
+    bool has_wifi_pass = false;
+    int64_t start_ms = esp_timer_get_time() / 1000;
+
+    while ((esp_timer_get_time() / 1000 - start_ms) < SERIAL_CONFIG_TIMEOUT_MS) {
+        uint8_t byte;
+        int len = uart_read_bytes(UART_NUM, &byte, 1, pdMS_TO_TICKS(100));
+        if (len <= 0) continue;
+
+        if (byte == '\n' || byte == '\r') {
+            if (line_pos == 0) continue;
+            line[line_pos] = '\0';
+            line_pos = 0;
+
+            /* Parse PLEXUS:key=value or PLEXUS:COMMIT */
+            if (strncmp(line, "PLEXUS:", 7) != 0) continue;
+
+            const char* payload = line + 7;
+
+            if (strcmp(payload, "COMMIT") == 0) {
+                if (has_api_key && has_source_id && has_wifi_ssid && has_wifi_pass) {
+                    printf("PLEXUS:SAVED\n");
+                    fflush(stdout);
+                    ESP_LOGI(TAG, "Config saved! Rebooting...");
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    return true;
+                } else {
+                    printf("PLEXUS:ERROR:missing required keys\n");
+                    fflush(stdout);
+                    ESP_LOGW(TAG, "COMMIT with missing keys: api_key=%d source_id=%d wifi_ssid=%d wifi_pass=%d",
+                             has_api_key, has_source_id, has_wifi_ssid, has_wifi_pass);
+                    continue;
+                }
+            }
+
+            /* Parse key=value */
+            const char* eq = strchr(payload, '=');
+            if (!eq) {
+                printf("PLEXUS:ERROR:bad format\n");
+                fflush(stdout);
+                continue;
+            }
+
+            /* Extract key and value */
+            size_t key_len = eq - payload;
+            if (key_len >= 32) { continue; }  /* key too long */
+
+            char key[32] = {0};
+            strncpy(key, payload, key_len);
+            const char* value = eq + 1;
+
+            /* Validate known keys */
+            bool valid_key = false;
+            if (strcmp(key, "api_key") == 0)    { has_api_key = true; valid_key = true; }
+            if (strcmp(key, "source_id") == 0)  { has_source_id = true; valid_key = true; }
+            if (strcmp(key, "wifi_ssid") == 0)  { has_wifi_ssid = true; valid_key = true; }
+            if (strcmp(key, "wifi_pass") == 0)  { has_wifi_pass = true; valid_key = true; }
+            if (strcmp(key, "endpoint") == 0)   { valid_key = true; }
+
+            if (!valid_key) {
+                printf("PLEXUS:ERROR:unknown key '%s'\n", key);
+                fflush(stdout);
+                continue;
+            }
+
+            if (nvs_write_config(key, value)) {
+                printf("PLEXUS:OK\n");
+                fflush(stdout);
+                ESP_LOGI(TAG, "Set %s = %s", key,
+                         strcmp(key, "wifi_pass") == 0 ? "****" : value);
+            } else {
+                printf("PLEXUS:ERROR:nvs write failed\n");
+                fflush(stdout);
+            }
+        } else if (line_pos < SERIAL_BUF_SIZE - 1) {
+            line[line_pos++] = (char)byte;
+        }
+    }
+
+    ESP_LOGW(TAG, "Serial config timeout — no config received");
+    return false;
 }
 
 /* ========================================================================= */
 /* WiFi connection                                                           */
 /* ========================================================================= */
+
+static EventGroupHandle_t s_wifi_event_group;
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT      BIT1
+static int s_retry_num = 0;
+#define MAX_RETRY 10
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data) {
@@ -115,7 +235,6 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 
 static bool wifi_connect(const char* ssid, const char* password) {
     s_wifi_event_group = xEventGroupCreate();
-
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
@@ -123,8 +242,7 @@ static bool wifi_connect(const char* ssid, const char* password) {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    esp_event_handler_instance_t instance_any_id;
-    esp_event_handler_instance_t instance_got_ip;
+    esp_event_handler_instance_t instance_any_id, instance_got_ip;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                     ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, &instance_any_id));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
@@ -145,36 +263,16 @@ static bool wifi_connect(const char* ssid, const char* password) {
                        WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
                        pdFALSE, pdFALSE, pdMS_TO_TICKS(30000));
 
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "WiFi connected to %s", ssid);
-        return true;
-    } else {
-        ESP_LOGE(TAG, "WiFi connection failed after %d retries", MAX_RETRY);
-        return false;
-    }
+    return (bits & WIFI_CONNECTED_BIT) != 0;
 }
 
 /* ========================================================================= */
 /* Telemetry                                                                 */
 /* ========================================================================= */
 
-static int8_t read_internal_temp(void) {
-    /* ESP32 internal temperature sensor — not available on all variants */
-#if CONFIG_IDF_TARGET_ESP32
-    extern uint8_t temprature_sens_read(void);  /* ROM function */
-    uint8_t raw = temprature_sens_read();
-    return (int8_t)((raw - 128) / 1.6f);  /* Approximate °C */
-#else
-    return 0;
-#endif
-}
-
 static int16_t read_wifi_rssi(void) {
     wifi_ap_record_t ap_info;
-    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-        return ap_info.rssi;
-    }
-    return 0;
+    return (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) ? ap_info.rssi : 0;
 }
 
 /* ========================================================================= */
@@ -184,6 +282,17 @@ static int16_t read_wifi_rssi(void) {
 void app_main(void) {
     led_init();
 
+    /* Initialize NVS */
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    /* Install UART driver for serial config mode */
+    uart_driver_install(UART_NUM, SERIAL_BUF_SIZE * 2, 0, 0, NULL, 0);
+
     ESP_LOGI(TAG, "╔═══════════════════════════════════════╗");
     ESP_LOGI(TAG, "║  Plexus Flashable Firmware v%s     ║", plexus_version());
     ESP_LOGI(TAG, "╚═══════════════════════════════════════╝");
@@ -191,16 +300,22 @@ void app_main(void) {
     /* Read configuration from NVS */
     plexus_nvs_config_t cfg;
     if (!plexus_nvs_config_read(&cfg) || !cfg.valid) {
-        ESP_LOGE(TAG, "No valid config found in NVS!");
-        ESP_LOGE(TAG, "Flash this device using the Plexus web interface.");
-        led_start_blink(100);  /* Fast blink = no config */
-        return;  /* Stop here — device needs to be reflashed */
+        ESP_LOGW(TAG, "No config found — entering serial config mode");
+        led_start_blink(100);  /* Fast blink = waiting for config */
+
+        if (serial_config_mode()) {
+            esp_restart();  /* Config saved — reboot into normal mode */
+        }
+
+        /* Timeout — no config received, just keep blinking */
+        ESP_LOGE(TAG, "No config received. Flash again with the Plexus web UI.");
+        while (1) { vTaskDelay(pdMS_TO_TICKS(1000)); }
     }
 
     ESP_LOGI(TAG, "Config loaded: source=%s", cfg.source_id);
 
     /* Connect to WiFi */
-    led_start_blink(500);  /* Slow blink = connecting */
+    led_start_blink(500);
 
     if (!wifi_connect(cfg.wifi_ssid, cfg.wifi_pass)) {
         ESP_LOGE(TAG, "WiFi failed — restarting in 10 seconds...");
@@ -208,7 +323,7 @@ void app_main(void) {
         esp_restart();
     }
 
-    /* Initialize time via NTP */
+    /* Initialize NTP */
     extern void plexus_hal_init_time(const char* ntp_server);
     plexus_hal_init_time("pool.ntp.org");
 
@@ -220,12 +335,10 @@ void app_main(void) {
         return;
     }
 
-    /* Use custom endpoint if configured */
     if (cfg.endpoint[0]) {
         plexus_set_endpoint(plexus, cfg.endpoint);
     }
 
-    /* Auto-flush every 5 seconds */
     plexus_set_flush_interval(plexus, 5000);
 
     /* Solid LED = streaming */
@@ -234,14 +347,11 @@ void app_main(void) {
 
     ESP_LOGI(TAG, "Streaming telemetry as '%s'...", cfg.source_id);
 
-    /* Main telemetry loop */
     while (1) {
-        int8_t temp = read_internal_temp();
         uint32_t free_heap = esp_get_free_heap_size();
         int64_t uptime_us = esp_timer_get_time();
         int16_t rssi = read_wifi_rssi();
 
-        plexus_send(plexus, "cpu_temp_c", (float)temp);
         plexus_send(plexus, "free_heap", (float)free_heap);
         plexus_send(plexus, "uptime_s", (float)(uptime_us / 1000000));
         plexus_send(plexus, "wifi_rssi", (float)rssi);
@@ -249,14 +359,8 @@ void app_main(void) {
         plexus_err_t err = plexus_tick(plexus);
         if (err != PLEXUS_OK) {
             ESP_LOGW(TAG, "Tick: %s", plexus_strerror(err));
-            /* Blink briefly on error, then go back to solid */
-            led_set(false);
-            vTaskDelay(pdMS_TO_TICKS(100));
-            led_set(true);
         }
 
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
-
-    plexus_free(plexus);
 }
