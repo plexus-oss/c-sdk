@@ -10,6 +10,8 @@
 #ifdef ESP_PLATFORM  /* Only compile for ESP-IDF */
 
 #include "esp_http_client.h"
+#include "esp_tls.h"
+#include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_sntp.h"
@@ -35,6 +37,7 @@ plexus_err_t plexus_hal_http_post(const char* url, const char* api_key,
         .keep_alive_enable = true,
         .buffer_size = 512,
         .buffer_size_tx = 1024,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
