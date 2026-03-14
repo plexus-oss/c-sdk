@@ -1,0 +1,65 @@
+name: Build Flashable Firmware
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-esp32:
+    name: Build ESP32 Flashable Firmware
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build firmware
+        working-directory: examples/esp32_flashable
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py set-target esp32
+          idf.py build
+
+      - name: Collect build artifacts
+        working-directory: examples/esp32_flashable
+        run: |
+          mkdir -p artifacts
+          cp build/bootloader/bootloader.bin   artifacts/bootloader.bin
+          cp build/partition_table/partition-table.bin artifacts/partition-table.bin
+          cp build/plexus_flashable.bin         artifacts/firmware.bin
+
+          # Generate manifest for ESP Web Tools
+          cat > artifacts/manifest.json << 'MANIFEST'
+          {
+            "name": "Plexus ESP32 Firmware",
+            "builds": [
+              {
+                "chipFamily": "ESP32",
+                "parts": [
+                  { "path": "bootloader.bin", "offset": 4096 },
+                  { "path": "partition-table.bin", "offset": 32768 },
+                  { "path": "firmware.bin", "offset": 131072 }
+                ]
+              }
+            ]
+          }
+          MANIFEST
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32-flashable-firmware
+          path: examples/esp32_flashable/artifacts/
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            examples/esp32_flashable/artifacts/bootloader.bin
+            examples/esp32_flashable/artifacts/partition-table.bin
+            examples/esp32_flashable/artifacts/firmware.bin
+            examples/esp32_flashable/artifacts/manifest.json
