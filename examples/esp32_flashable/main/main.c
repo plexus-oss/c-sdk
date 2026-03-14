@@ -34,8 +34,8 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_partition.h"
 #include "driver/gpio.h"
-#include "driver/uart.h"
 
 #include "plexus.h"
 #include "plexus_hal_nvs_config.h"
@@ -43,9 +43,6 @@
 static const char* TAG = "plexus_flash";
 
 #define LED_GPIO GPIO_NUM_2
-#define UART_NUM UART_NUM_0
-#define SERIAL_CONFIG_TIMEOUT_MS 60000
-#define SERIAL_BUF_SIZE 256
 
 /* ========================================================================= */
 /* LED control                                                               */
@@ -82,126 +79,7 @@ static void led_stop_blink(void) {
     if (s_blink_task) { vTaskDelete(s_blink_task); s_blink_task = NULL; }
 }
 
-/* ========================================================================= */
-/* Serial config mode                                                        */
-/* ========================================================================= */
-
-/** Write a config key-value pair to NVS */
-static bool nvs_write_config(const char* key, const char* value) {
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("plexus_cfg", NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS open failed: %s", esp_err_to_name(err));
-        return false;
-    }
-    err = nvs_set_str(handle, key, value);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS set '%s' failed: %s", key, esp_err_to_name(err));
-        nvs_close(handle);
-        return false;
-    }
-    nvs_commit(handle);
-    nvs_close(handle);
-    return true;
-}
-
-/**
- * Enter serial config mode. Listens on UART0 for PLEXUS:key=value lines.
- * Returns true if config was saved and device should reboot.
- */
-static bool serial_config_mode(void) {
-    ESP_LOGI(TAG, "Entering serial config mode (waiting %ds)...", SERIAL_CONFIG_TIMEOUT_MS / 1000);
-
-    /* Signal readiness to the browser */
-    printf("PLEXUS:READY\n");
-    fflush(stdout);
-
-    char line[SERIAL_BUF_SIZE];
-    int line_pos = 0;
-    bool has_api_key = false;
-    bool has_source_id = false;
-    bool has_wifi_ssid = false;
-    bool has_wifi_pass = false;
-    int64_t start_ms = esp_timer_get_time() / 1000;
-
-    while ((esp_timer_get_time() / 1000 - start_ms) < SERIAL_CONFIG_TIMEOUT_MS) {
-        uint8_t byte;
-        int len = uart_read_bytes(UART_NUM, &byte, 1, pdMS_TO_TICKS(100));
-        if (len <= 0) continue;
-
-        if (byte == '\n' || byte == '\r') {
-            if (line_pos == 0) continue;
-            line[line_pos] = '\0';
-            line_pos = 0;
-
-            /* Parse PLEXUS:key=value or PLEXUS:COMMIT */
-            if (strncmp(line, "PLEXUS:", 7) != 0) continue;
-
-            const char* payload = line + 7;
-
-            if (strcmp(payload, "COMMIT") == 0) {
-                if (has_api_key && has_source_id && has_wifi_ssid && has_wifi_pass) {
-                    printf("PLEXUS:SAVED\n");
-                    fflush(stdout);
-                    ESP_LOGI(TAG, "Config saved! Rebooting...");
-                    vTaskDelay(pdMS_TO_TICKS(500));
-                    return true;
-                } else {
-                    printf("PLEXUS:ERROR:missing required keys\n");
-                    fflush(stdout);
-                    ESP_LOGW(TAG, "COMMIT with missing keys: api_key=%d source_id=%d wifi_ssid=%d wifi_pass=%d",
-                             has_api_key, has_source_id, has_wifi_ssid, has_wifi_pass);
-                    continue;
-                }
-            }
-
-            /* Parse key=value */
-            const char* eq = strchr(payload, '=');
-            if (!eq) {
-                printf("PLEXUS:ERROR:bad format\n");
-                fflush(stdout);
-                continue;
-            }
-
-            /* Extract key and value */
-            size_t key_len = eq - payload;
-            if (key_len >= 32) { continue; }  /* key too long */
-
-            char key[32] = {0};
-            strncpy(key, payload, key_len);
-            const char* value = eq + 1;
-
-            /* Validate known keys */
-            bool valid_key = false;
-            if (strcmp(key, "api_key") == 0)    { has_api_key = true; valid_key = true; }
-            if (strcmp(key, "source_id") == 0)  { has_source_id = true; valid_key = true; }
-            if (strcmp(key, "wifi_ssid") == 0)  { has_wifi_ssid = true; valid_key = true; }
-            if (strcmp(key, "wifi_pass") == 0)  { has_wifi_pass = true; valid_key = true; }
-            if (strcmp(key, "endpoint") == 0)   { valid_key = true; }
-
-            if (!valid_key) {
-                printf("PLEXUS:ERROR:unknown key '%s'\n", key);
-                fflush(stdout);
-                continue;
-            }
-
-            if (nvs_write_config(key, value)) {
-                printf("PLEXUS:OK\n");
-                fflush(stdout);
-                ESP_LOGI(TAG, "Set %s = %s", key,
-                         strcmp(key, "wifi_pass") == 0 ? "****" : value);
-            } else {
-                printf("PLEXUS:ERROR:nvs write failed\n");
-                fflush(stdout);
-            }
-        } else if (line_pos < SERIAL_BUF_SIZE - 1) {
-            line[line_pos++] = (char)byte;
-        }
-    }
-
-    ESP_LOGW(TAG, "Serial config timeout — no config received");
-    return false;
-}
+/* (Config is read from plain-text flash partition — no serial config needed) */
 
 /* ========================================================================= */
 /* WiFi connection                                                           */
@@ -290,68 +168,75 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    /* Install UART driver for serial config mode */
-    uart_driver_install(UART_NUM, SERIAL_BUF_SIZE * 2, 0, 0, NULL, 0);
-
     ESP_LOGI(TAG, "╔═══════════════════════════════════════╗");
     ESP_LOGI(TAG, "║  Plexus Flashable Firmware v%s     ║", plexus_version());
     ESP_LOGI(TAG, "╚═══════════════════════════════════════╝");
 
     /*
-     * Config window: listen for PLEXUS:PING on serial for 5 seconds.
-     * If received, enter serial config mode (even if NVS config exists).
-     * This allows the browser to reconfigure the device without erasing flash.
+     * Read config from the plexus_cfg partition.
+     *
+     * The browser writes plain text (key=value\n pairs) directly to the
+     * plexus_cfg flash partition at 0x11000. No NVS format, no serial
+     * config — just raw text written during the flash step.
+     *
+     * On first boot: read plain text → write to NVS → reboot.
+     * On subsequent boots: read from NVS directly (fast path).
      */
-    printf("PLEXUS:READY\n");
-    fflush(stdout);
-    ESP_LOGI(TAG, "Listening for serial config (5s window)...");
-
-    {
-        bool ping_received = false;
-        char ping_buf[64] = {0};
-        int ping_pos = 0;
-        int64_t window_start = esp_timer_get_time() / 1000;
-
-        while ((esp_timer_get_time() / 1000 - window_start) < 5000) {
-            uint8_t byte;
-            int len = uart_read_bytes(UART_NUM, &byte, 1, pdMS_TO_TICKS(50));
-            if (len <= 0) continue;
-
-            if (byte == '\n' || byte == '\r') {
-                if (ping_pos > 0) {
-                    ping_buf[ping_pos] = '\0';
-                    if (strstr(ping_buf, "PLEXUS:") != NULL) {
-                        ping_received = true;
-                        /* Push the line back by processing it in serial_config_mode */
-                        break;
-                    }
-                    ping_pos = 0;
-                }
-            } else if (ping_pos < (int)sizeof(ping_buf) - 1) {
-                ping_buf[ping_pos++] = (char)byte;
-            }
-        }
-
-        if (ping_received) {
-            ESP_LOGI(TAG, "Serial config request received");
-            led_start_blink(100);
-            if (serial_config_mode()) {
-                esp_restart();
-            }
-        }
-    }
-
-    /* Read configuration from NVS */
     plexus_nvs_config_t cfg;
-    if (!plexus_nvs_config_read(&cfg) || !cfg.valid) {
-        ESP_LOGW(TAG, "No config found — entering serial config mode");
-        led_start_blink(100);
+    bool cfg_ok = plexus_nvs_config_read(&cfg) && cfg.valid;
 
-        if (serial_config_mode()) {
-            esp_restart();
+    if (!cfg_ok) {
+        /* Try reading plain-text config from the raw flash partition */
+        const esp_partition_t* part = esp_partition_find_first(
+            ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "plexus_cfg");
+
+        if (part) {
+            char raw[1024] = {0};
+            if (esp_partition_read(part, 0, raw, sizeof(raw) - 1) == ESP_OK &&
+                raw[0] != '\xff' && raw[0] != '\0') {
+
+                ESP_LOGI(TAG, "Found plain-text config in flash — importing to NVS");
+
+                /* Parse key=value lines and write to NVS */
+                nvs_handle_t nvs;
+                if (nvs_open("plexus_cfg", NVS_READWRITE, &nvs) == ESP_OK) {
+                    char* line = strtok(raw, "\n");
+                    int count = 0;
+                    while (line) {
+                        char* eq = strchr(line, '=');
+                        if (eq && eq != line) {
+                            *eq = '\0';
+                            const char* key = line;
+                            const char* val = eq + 1;
+                            /* Trim \r if present */
+                            size_t val_len = strlen(val);
+                            if (val_len > 0 && val[val_len - 1] == '\r') {
+                                ((char*)val)[val_len - 1] = '\0';
+                            }
+                            nvs_set_str(nvs, key, val);
+                            ESP_LOGI(TAG, "  %s = %s", key,
+                                     strcmp(key, "wifi_pass") == 0 ? "****" : val);
+                            count++;
+                        }
+                        line = strtok(NULL, "\n");
+                    }
+                    nvs_commit(nvs);
+                    nvs_close(nvs);
+
+                    if (count > 0) {
+                        /* Erase the raw partition so we don't re-import on next boot */
+                        esp_partition_erase_range(part, 0, part->size);
+                        ESP_LOGI(TAG, "Imported %d keys — rebooting with new config", count);
+                        vTaskDelay(pdMS_TO_TICKS(200));
+                        esp_restart();
+                    }
+                }
+            }
         }
 
-        ESP_LOGE(TAG, "No config received. Flash again with the Plexus web UI.");
+        /* No config anywhere */
+        ESP_LOGE(TAG, "No config found! Flash this device using the Plexus web UI.");
+        led_start_blink(100);
         while (1) { vTaskDelay(pdMS_TO_TICKS(1000)); }
     }
 
