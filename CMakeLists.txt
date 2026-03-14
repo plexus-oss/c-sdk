@@ -26,9 +26,9 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
             "src"
         REQUIRES
             esp_http_client
-            esp_tls
             esp_timer
             nvs_flash
+            mbedtls
     )
     return()
 endif()

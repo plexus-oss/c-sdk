@@ -10,7 +10,6 @@
 #ifdef ESP_PLATFORM  /* Only compile for ESP-IDF */
 
 #include "esp_http_client.h"
-#include "esp_tls.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_timer.h"
