@@ -4,4 +4,5 @@ idf_component_register(
     INCLUDE_DIRS "."
                  "../../../hal/esp32"
     REQUIRES nvs_flash esp_wifi esp_event esp_timer driver
+    PRIV_REQUIRES c-sdk
 )
