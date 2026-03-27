@@ -1,6 +1,6 @@
 # Plexus C SDK
 
-**Minimal-footprint C library for embedded IoT telemetry.** Send sensor data from ESP32, STM32, and Arduino to [Plexus](https://plexus.company) — the HardwareOps platform for real-time observability and fleet management of microcontrollers and embedded devices.
+**Minimal-footprint C library for embedded telemetry.** Send sensor data from ESP32, STM32, and Arduino to [Plexus](https://plexus.company) — the HardwareOps platform for real-time observability and fleet management of microcontrollers and embedded devices.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
@@ -105,7 +105,7 @@ plexus_client_t* px = plexus_init_static(&buf, sizeof(buf), "plx_key", "source-i
 // plexus_free() is safe on both: it only calls free() on heap-allocated clients.
 ```
 
-**`source_id` must be URL-safe:** only `a-z A-Z 0-9 . _ -` are allowed (no spaces). Use the slug shown in the Plexus dashboard, not the display name. `plexus_init` returns `NULL` if the source ID contains invalid characters.
+**`source_id` must be URL-safe:** only `a-z A-Z 0-9 . _ -` are allowed (no spaces). Use the device ID shown in the Plexus dashboard, not the display name. `plexus_init` returns `NULL` if the source ID contains invalid characters.
 
 ### Send
 

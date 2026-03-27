@@ -81,6 +81,10 @@
     #define PLEXUS_HAS_LWIP 0
 #endif
 
+#if PLEXUS_HAS_LWIP && !defined(LWIP_ALTCP_TLS)
+    #warning "Plexus STM32: TLS not available. API keys sent in cleartext. See file header."
+#endif
+
 /* HTTP header buffer must fit: method + path + host + api_key + user-agent + fixed text.
  * Worst case: ~140 bytes fixed text + path(256) + host(128) + api_key(128) + UA(~30) = ~682.
  * Round up to 768 for headroom. */

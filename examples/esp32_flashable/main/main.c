@@ -36,9 +36,14 @@
 #include "nvs.h"
 #include "esp_partition.h"
 #include "driver/gpio.h"
+#include "driver/uart.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 
 #include "plexus.h"
 #include "plexus_hal_nvs_config.h"
+#include "i2c_scan.h"
 
 static const char* TAG = "plexus_flash";
 
@@ -79,7 +84,112 @@ static void led_stop_blink(void) {
     if (s_blink_task) { vTaskDelete(s_blink_task); s_blink_task = NULL; }
 }
 
-/* (Config is read from plain-text flash partition — no serial config needed) */
+/* ========================================================================= */
+/* Serial config mode                                                        */
+/* ========================================================================= */
+
+#define UART_BUF_SIZE 1024
+#define LINE_BUF_SIZE 256
+
+static void serial_config_mode(void) {
+    /* Install UART driver for config input */
+    uart_config_t uart_cfg = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_BITS_8,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCONTROL_DISABLE,
+    };
+    uart_param_config(UART_NUM_0, &uart_cfg);
+    uart_driver_install(UART_NUM_0, UART_BUF_SIZE, 0, 0, NULL, 0);
+
+    /* Signal readiness */
+    const char* ready = "PLEXUS:READY\n";
+    uart_write_bytes(UART_NUM_0, ready, strlen(ready));
+    ESP_LOGI(TAG, "Entering serial config mode — send PLEXUS:key=value lines");
+
+    /* Open NVS for writing */
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open("plexus_cfg", NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS: %s", esp_err_to_name(err));
+        return;
+    }
+
+    char line_buf[LINE_BUF_SIZE] = {0};
+    int line_pos = 0;
+    uint8_t byte;
+
+    while (1) {
+        int len = uart_read_bytes(UART_NUM_0, &byte, 1, pdMS_TO_TICKS(100));
+        if (len <= 0) continue;
+
+        if (byte == '\n' || byte == '\r') {
+            if (line_pos == 0) continue;  /* Skip empty lines */
+            line_buf[line_pos] = '\0';
+
+            /* Strip trailing \r if present */
+            if (line_pos > 0 && line_buf[line_pos - 1] == '\r') {
+                line_buf[line_pos - 1] = '\0';
+            }
+
+            /* Must start with PLEXUS: prefix */
+            if (strncmp(line_buf, "PLEXUS:", 7) != 0) {
+                line_pos = 0;
+                continue;
+            }
+
+            const char* payload = line_buf + 7;
+
+            if (strcmp(payload, "COMMIT") == 0) {
+                /* Validate required keys */
+                const char* required[] = {"api_key", "source_id", "wifi_ssid", "wifi_pass"};
+                bool valid = true;
+                for (int i = 0; i < 4; i++) {
+                    char tmp[128];
+                    size_t tmp_len = sizeof(tmp);
+                    if (nvs_get_str(nvs, required[i], tmp, &tmp_len) != ESP_OK) {
+                        char err_msg[64];
+                        snprintf(err_msg, sizeof(err_msg), "PLEXUS:ERROR=missing %s\n", required[i]);
+                        uart_write_bytes(UART_NUM_0, err_msg, strlen(err_msg));
+                        ESP_LOGW(TAG, "Missing required key: %s", required[i]);
+                        valid = false;
+                    }
+                }
+
+                if (valid) {
+                    nvs_commit(nvs);
+                    nvs_close(nvs);
+                    const char* saved = "PLEXUS:SAVED\n";
+                    uart_write_bytes(UART_NUM_0, saved, strlen(saved));
+                    ESP_LOGI(TAG, "Config saved — rebooting");
+                    vTaskDelay(pdMS_TO_TICKS(200));
+                    esp_restart();
+                }
+            } else {
+                /* Parse key=value */
+                char* eq = strchr((char*)payload, '=');
+                if (eq && eq != payload) {
+                    *eq = '\0';
+                    const char* key = payload;
+                    const char* val = eq + 1;
+                    nvs_set_str(nvs, key, val);
+                    ESP_LOGI(TAG, "Set %s = %s",
+                             key, strcmp(key, "wifi_pass") == 0 ? "****" : val);
+                    const char* ok = "PLEXUS:OK\n";
+                    uart_write_bytes(UART_NUM_0, ok, strlen(ok));
+                } else {
+                    const char* err_msg = "PLEXUS:ERROR=invalid format\n";
+                    uart_write_bytes(UART_NUM_0, err_msg, strlen(err_msg));
+                }
+            }
+
+            line_pos = 0;
+        } else if (line_pos < LINE_BUF_SIZE - 1) {
+            line_buf[line_pos++] = (char)byte;
+        }
+    }
+}
 
 /* ========================================================================= */
 /* WiFi connection                                                           */
@@ -234,9 +344,10 @@ void app_main(void) {
     /* Step 2: Read config from NVS */
     plexus_nvs_config_t cfg;
     if (!plexus_nvs_config_read(&cfg) || !cfg.valid) {
-        ESP_LOGE(TAG, "No config found! Flash this device using the Plexus web UI.");
+        ESP_LOGI(TAG, "No config found — entering serial config mode");
         led_start_blink(100);
-        while (1) { vTaskDelay(pdMS_TO_TICKS(1000)); }
+        serial_config_mode();  /* Blocks until config received and reboots */
+        return;
     }
 
     ESP_LOGI(TAG, "Config loaded: source=%s", cfg.source_id);
@@ -268,13 +379,80 @@ void app_main(void) {
 
     plexus_set_flush_interval(plexus, 5000);
 
-    /* Solid LED = streaming */
+    /* ================================================================= */
+    /* I2C sensor auto-detection                                        */
+    /* ================================================================= */
+
+    i2c_scan_result_t i2c_result = {0};
+
+    if (i2c_scan_init(21, 22)) {  /* Default ESP32 I2C pins */
+        ESP_LOGI(TAG, "Scanning I2C bus...");
+        i2c_scan_detect(&i2c_result);
+
+        if (i2c_result.devices_str[0]) {
+            plexus_send_string(plexus, "i2c_devices", i2c_result.devices_str);
+        }
+    } else {
+        ESP_LOGW(TAG, "I2C init failed — skipping sensor scan");
+    }
+
+    /* ================================================================= */
+    /* ADC initialization                                                */
+    /* ================================================================= */
+
+    adc_oneshot_unit_handle_t adc_handle = NULL;
+    adc_cali_handle_t adc_cali = NULL;
+    bool adc_ready = false;
+
+    {
+        adc_oneshot_unit_init_cfg_t adc_cfg = {
+            .unit_id = ADC_UNIT_1,
+        };
+        if (adc_oneshot_new_unit(&adc_cfg, &adc_handle) == ESP_OK) {
+            /* Configure 6 ADC1 channels (GPIO 32-37) */
+            adc_oneshot_chan_cfg_t chan_cfg = {
+                .atten = ADC_ATTEN_DB_12,
+                .bitwidth = ADC_BITWIDTH_12,
+            };
+            for (int ch = ADC_CHANNEL_4; ch <= ADC_CHANNEL_9; ch++) {
+                adc_oneshot_config_channel(adc_handle, ch, &chan_cfg);
+            }
+
+            /* Try to create calibration handle for mV conversion */
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+            adc_cali_curve_fitting_config_t cali_cfg = {
+                .unit_id = ADC_UNIT_1,
+                .atten = ADC_ATTEN_DB_12,
+                .bitwidth = ADC_BITWIDTH_12,
+            };
+            adc_cali_create_scheme_curve_fitting(&cali_cfg, &adc_cali);
+#elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+            adc_cali_line_fitting_config_t cali_cfg = {
+                .unit_id = ADC_UNIT_1,
+                .atten = ADC_ATTEN_DB_12,
+                .bitwidth = ADC_BITWIDTH_12,
+            };
+            adc_cali_create_scheme_line_fitting(&cali_cfg, &adc_cali);
+#endif
+            adc_ready = true;
+            ESP_LOGI(TAG, "ADC initialized (6 channels on GPIO 32-37)");
+        }
+    }
+
+    /* ================================================================= */
+    /* Solid LED = streaming                                             */
+    /* ================================================================= */
+
     led_stop_blink();
     led_set(true);
 
     ESP_LOGI(TAG, "Streaming telemetry as '%s'...", cfg.source_id);
+    if (i2c_result.count > 0) {
+        ESP_LOGI(TAG, "  I2C sensors: %d detected", i2c_result.count);
+    }
 
     while (1) {
+        /* System metrics */
         uint32_t free_heap = esp_get_free_heap_size();
         int64_t uptime_us = esp_timer_get_time();
         int16_t rssi = read_wifi_rssi();
@@ -283,9 +461,33 @@ void app_main(void) {
         plexus_send(plexus, "uptime_s", (float)(uptime_us / 1000000));
         plexus_send(plexus, "wifi_rssi", (float)rssi);
 
-        plexus_err_t err = plexus_tick(plexus);
-        if (err != PLEXUS_OK) {
-            ESP_LOGW(TAG, "Tick: %s", plexus_strerror(err));
+        /* I2C sensor metrics */
+        if (i2c_result.count > 0) {
+            i2c_scan_read_all(&i2c_result);
+            i2c_scan_send(plexus, &i2c_result);
+        }
+
+        /* ADC metrics (only send channels above noise floor) */
+        if (adc_ready) {
+            const char* adc_names[] = {"adc_ch0", "adc_ch1", "adc_ch2",
+                                       "adc_ch3", "adc_ch4", "adc_ch5"};
+            for (int ch = 0; ch < 6; ch++) {
+                int raw = 0;
+                if (adc_oneshot_read(adc_handle, ADC_CHANNEL_4 + ch, &raw) == ESP_OK) {
+                    int mv = raw;  /* Fallback: raw value */
+                    if (adc_cali) {
+                        adc_cali_raw_to_voltage(adc_cali, raw, &mv);
+                    }
+                    if (mv > 50) {  /* Skip channels at noise floor */
+                        plexus_send(plexus, adc_names[ch], (float)mv);
+                    }
+                }
+            }
+        }
+
+        plexus_err_t tick_err = plexus_tick(plexus);
+        if (tick_err != PLEXUS_OK) {
+            ESP_LOGW(TAG, "Tick: %s", plexus_strerror(tick_err));
         }
 
         vTaskDelay(pdMS_TO_TICKS(1000));

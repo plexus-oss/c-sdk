@@ -229,6 +229,12 @@ plexus_client_t* plexus_init(const char* api_key, const char* source_id) {
         strlen(source_id) >= PLEXUS_MAX_SOURCE_ID_LEN) {
         return NULL;
     }
+    if (strncmp(api_key, "plx_", 4) != 0) {
+#if PLEXUS_DEBUG
+        plexus_hal_log("plexus: API key does not start with 'plx_'");
+#endif
+        return NULL;
+    }
 
     plexus_client_t* client = (plexus_client_t*)malloc(sizeof(plexus_client_t));
     if (!client) {
@@ -257,6 +263,12 @@ plexus_client_t* plexus_init_static(void* buf, size_t buf_size,
     }
     if (strlen(api_key) >= PLEXUS_MAX_API_KEY_LEN ||
         strlen(source_id) >= PLEXUS_MAX_SOURCE_ID_LEN) {
+        return NULL;
+    }
+    if (strncmp(api_key, "plx_", 4) != 0) {
+#if PLEXUS_DEBUG
+        plexus_hal_log("plexus: API key does not start with 'plx_'");
+#endif
         return NULL;
     }
 
