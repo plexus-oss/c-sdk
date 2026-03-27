@@ -95,10 +95,10 @@ static void serial_config_mode(void) {
     /* Install UART driver for config input */
     uart_config_t uart_cfg = {
         .baud_rate = 115200,
-        .data_bits = UART_DATA_BITS_8,
+        .data_bits = UART_DATA_8_BITS,
         .parity    = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCONTROL_DISABLE,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
     };
     uart_param_config(UART_NUM_0, &uart_cfg);
     uart_driver_install(UART_NUM_0, UART_BUF_SIZE, 0, 0, NULL, 0);
