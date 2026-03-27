@@ -390,7 +390,7 @@ void app_main(void) {
         i2c_scan_detect(&i2c_result);
 
         if (i2c_result.devices_str[0]) {
-            plexus_send_string(plexus, "i2c_devices", i2c_result.devices_str);
+            (void)plexus_send_string(plexus, "i2c_devices", i2c_result.devices_str);
         }
     } else {
         ESP_LOGW(TAG, "I2C init failed — skipping sensor scan");
@@ -457,9 +457,9 @@ void app_main(void) {
         int64_t uptime_us = esp_timer_get_time();
         int16_t rssi = read_wifi_rssi();
 
-        plexus_send(plexus, "free_heap", (float)free_heap);
-        plexus_send(plexus, "uptime_s", (float)(uptime_us / 1000000));
-        plexus_send(plexus, "wifi_rssi", (float)rssi);
+        (void)plexus_send(plexus, "free_heap", (float)free_heap);
+        (void)plexus_send(plexus, "uptime_s", (float)(uptime_us / 1000000));
+        (void)plexus_send(plexus, "wifi_rssi", (float)rssi);
 
         /* I2C sensor metrics */
         if (i2c_result.count > 0) {
@@ -479,7 +479,7 @@ void app_main(void) {
                         adc_cali_raw_to_voltage(adc_cali, raw, &mv);
                     }
                     if (mv > 50) {  /* Skip channels at noise floor */
-                        plexus_send(plexus, adc_names[ch], (float)mv);
+                        (void)plexus_send(plexus, adc_names[ch], (float)mv);
                     }
                 }
             }

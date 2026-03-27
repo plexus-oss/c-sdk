@@ -472,7 +472,7 @@ void i2c_scan_send(plexus_client_t* px, const i2c_scan_result_t* result) {
     for (int i = 0; i < result->count; i++) {
         const i2c_sensor_t* sensor = &result->sensors[i];
         for (int m = 0; m < sensor->metric_count; m++) {
-            plexus_send(px, sensor->metrics[m].name, sensor->metrics[m].value);
+            (void)plexus_send(px, sensor->metrics[m].name, sensor->metrics[m].value);
         }
     }
 }
