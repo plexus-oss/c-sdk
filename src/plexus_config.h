@@ -133,6 +133,58 @@
 #define PLEXUS_ENABLE_THREAD_SAFE 0        /* Enable mutex-protected client access */
 #endif
 
+/* ========================================================================= */
+/* WebSocket support (compile-time opt-in)                                   */
+/* ========================================================================= */
+
+#ifndef PLEXUS_ENABLE_WEBSOCKET
+#define PLEXUS_ENABLE_WEBSOCKET 0          /* Enable WebSocket transport + commands */
+#endif
+
+#ifndef PLEXUS_WS_ENDPOINT
+#define PLEXUS_WS_ENDPOINT "wss://realtime.plexusrt.dev/party/"
+#endif
+
+#ifndef PLEXUS_WS_HEARTBEAT_INTERVAL_MS
+#define PLEXUS_WS_HEARTBEAT_INTERVAL_MS 30000   /* 30s heartbeat interval */
+#endif
+
+#ifndef PLEXUS_WS_RECONNECT_BASE_MS
+#define PLEXUS_WS_RECONNECT_BASE_MS 1000        /* Initial reconnect delay */
+#endif
+
+#ifndef PLEXUS_WS_RECONNECT_MAX_MS
+#define PLEXUS_WS_RECONNECT_MAX_MS 60000        /* Max reconnect delay */
+#endif
+
+#ifndef PLEXUS_WS_AUTH_TIMEOUT_MS
+#define PLEXUS_WS_AUTH_TIMEOUT_MS 10000         /* Auth handshake timeout */
+#endif
+
+#ifndef PLEXUS_MAX_COMMANDS
+#define PLEXUS_MAX_COMMANDS 8                   /* Max registered command handlers */
+#endif
+
+#ifndef PLEXUS_MAX_COMMAND_NAME_LEN
+#define PLEXUS_MAX_COMMAND_NAME_LEN 32          /* Max command name length */
+#endif
+
+#ifndef PLEXUS_MAX_COMMAND_PARAMS
+#define PLEXUS_MAX_COMMAND_PARAMS 6             /* Max params per command */
+#endif
+
+#ifndef PLEXUS_COMMAND_QUEUE_SIZE
+#define PLEXUS_COMMAND_QUEUE_SIZE 4             /* Incoming command ring buffer slots */
+#endif
+
+#ifndef PLEXUS_WS_RECV_BUFFER_SIZE
+#define PLEXUS_WS_RECV_BUFFER_SIZE 512          /* Buffer for incoming WS messages */
+#endif
+
+#ifndef PLEXUS_MAX_ORG_ID_LEN
+#define PLEXUS_MAX_ORG_ID_LEN 64               /* Max organization ID length */
+#endif
+
 /* Debug settings */
 #ifndef PLEXUS_DEBUG
 #define PLEXUS_DEBUG 0                 /* Enable debug logging */

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-28
+
+### Added
+
+- **WebSocket transport** — opt-in bidirectional communication via PartyKit. Enables real-time telemetry (<100ms) and command reception from the dashboard. Gated behind `PLEXUS_ENABLE_WEBSOCKET` compile flag (default off, zero overhead when disabled).
+- **Typed command system** — register command handlers with parameter schemas. Dashboard renders buttons + input forms automatically from the advertised schema. `plexus_command_register()`, `plexus_command_respond()`, param helpers.
+- **WebSocket state machine** — connect, authenticate, heartbeat (30s), reconnect with exponential backoff (1s→60s, ±25% jitter). Cooperative tick model — no hidden threads.
+- **Dual transport mode** — send telemetry over WebSocket (real-time) and HTTP (persistence) simultaneously. Controlled via `plexus_set_ws_telemetry()` and `plexus_set_http_persist()`.
+- **SPSC ring buffer with memory barriers** — lock-free command queue between HAL callback and application task. Uses `__atomic_store_n`/`__atomic_load_n` on GCC/Clang for multi-core safety.
+- **ESP32 WebSocket HAL** — `plexus_hal_ws_esp32.c` using `esp_websocket_client` (ESP-IDF v5.0+).
+- **ESP32 WebSocket example** — `examples/esp32_websocket/` with serial config, WiFi, telemetry, and "honk" command demo.
+- **Built-in commands in flashable firmware** — reboot and blink (identify) commands. Enabled automatically when `org_id` is present in NVS config.
+- **WebSocket in flashable firmware** — runtime-detected via `org_id` in NVS. If present, enables WebSocket + commands. If absent, HTTP-only (fully backwards compatible).
+- New error codes: `PLEXUS_ERR_WS_NOT_CONNECTED`, `PLEXUS_ERR_WS_AUTH_TIMEOUT`, `PLEXUS_ERR_COMMAND_FULL`, `PLEXUS_ERR_COMMAND_NOT_FOUND`
+- `idf_component.yml` for `esp_websocket_client` managed component dependency
+
+### Changed
+
+- CI container bumped from `espressif/idf:v5.2` to `espressif/idf:v5.3`
+- `CMakeLists.txt` (ESP-IDF mode) always includes `plexus_ws.c` and `plexus_hal_ws_esp32.c` — files compile to empty when `PLEXUS_ENABLE_WEBSOCKET=0`
+- `plexus_tick()` now drives the WebSocket state machine when enabled
+- `plexus_flush()` routes through WebSocket when connected, falls back to HTTP
+
 ## [0.5.4] - 2026-02-26
 
 ### Changed

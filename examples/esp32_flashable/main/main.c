@@ -264,6 +264,37 @@ static int16_t read_wifi_rssi(void) {
 }
 
 /* ========================================================================= */
+/* Built-in command handlers (WebSocket mode only)                           */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_WEBSOCKET
+
+static void reboot_handler(const char* cmd_id, const char* params_json, void* user_data) {
+    plexus_client_t* px = (plexus_client_t*)user_data;
+    ESP_LOGI(TAG, "Reboot command received");
+    (void)plexus_command_respond(px, cmd_id, "{\"rebooting\":true}", NULL);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+}
+
+static void blink_handler(const char* cmd_id, const char* params_json, void* user_data) {
+    plexus_client_t* px = (plexus_client_t*)user_data;
+    (void)params_json;
+    ESP_LOGI(TAG, "Blink command received");
+
+    for (int i = 0; i < 5; i++) {
+        led_set(false);
+        vTaskDelay(pdMS_TO_TICKS(150));
+        led_set(true);
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+
+    (void)plexus_command_respond(px, cmd_id, "{\"blinked\":true}", NULL);
+}
+
+#endif /* PLEXUS_ENABLE_WEBSOCKET */
+
+/* ========================================================================= */
 /* Main                                                                      */
 /* ========================================================================= */
 
@@ -352,6 +383,26 @@ void app_main(void) {
 
     ESP_LOGI(TAG, "Config loaded: source=%s", cfg.source_id);
 
+    /* Read org_id from NVS (optional — enables WebSocket if present) */
+    bool ws_enabled = false;
+#if PLEXUS_ENABLE_WEBSOCKET
+    char org_id[64] = {0};
+    {
+        nvs_handle_t nvs;
+        if (nvs_open("plexus_cfg", NVS_READONLY, &nvs) == ESP_OK) {
+            size_t len = sizeof(org_id);
+            nvs_get_str(nvs, "org_id", org_id, &len);
+            nvs_close(nvs);
+        }
+    }
+    ws_enabled = (org_id[0] != '\0');
+    if (ws_enabled) {
+        ESP_LOGI(TAG, "WebSocket enabled (org_id found)");
+    } else {
+        ESP_LOGI(TAG, "HTTP-only mode (no org_id)");
+    }
+#endif
+
     /* Connect to WiFi */
     led_start_blink(500);
 
@@ -378,6 +429,36 @@ void app_main(void) {
     }
 
     plexus_set_flush_interval(plexus, 5000);
+
+    /* ================================================================= */
+    /* WebSocket setup (conditional on org_id)                           */
+    /* ================================================================= */
+
+#if PLEXUS_ENABLE_WEBSOCKET
+    if (ws_enabled) {
+        plexus_set_http_persist(plexus, true);
+        plexus_set_org_id(plexus, org_id);
+
+        /* Built-in commands */
+        (void)plexus_command_register(plexus, "reboot", "Reboot the device",
+                                      reboot_handler, plexus, NULL, 0);
+
+        plexus_param_t blink_params[] = {
+            plexus_param_int("count", 1, 20),
+        };
+        (void)plexus_command_register(plexus, "blink", "Blink LED to identify device",
+                                      blink_handler, plexus, blink_params, 1);
+
+        plexus_err_t ws_err = plexus_ws_connect(plexus);
+        if (ws_err != PLEXUS_OK) {
+            ESP_LOGW(TAG, "WS connect failed: %s — HTTP-only fallback",
+                     plexus_strerror(ws_err));
+            ws_enabled = false;
+        } else {
+            plexus_set_flush_interval(plexus, 500);  /* Faster for real-time */
+        }
+    }
+#endif
 
     /* ================================================================= */
     /* I2C sensor auto-detection                                        */
@@ -485,11 +566,21 @@ void app_main(void) {
             }
         }
 
+        /* WebSocket diagnostics */
+#if PLEXUS_ENABLE_WEBSOCKET
+        if (ws_enabled) {
+            plexus_ws_state_t state = plexus_ws_state(plexus);
+            (void)plexus_send(plexus, "ws_connected",
+                              (float)(state == PLEXUS_WS_CONNECTED ? 1.0 : 0.0));
+        }
+#endif
+
         plexus_err_t tick_err = plexus_tick(plexus);
-        if (tick_err != PLEXUS_OK) {
+        if (tick_err != PLEXUS_OK && tick_err != PLEXUS_ERR_NO_DATA) {
             ESP_LOGW(TAG, "Tick: %s", plexus_strerror(tick_err));
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        /* 100ms when WS active (responsive commands), 1000ms for HTTP-only */
+        vTaskDelay(pdMS_TO_TICKS(ws_enabled ? 100 : 1000));
     }
 }

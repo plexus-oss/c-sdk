@@ -30,7 +30,7 @@ extern "C" {
 /* Version                                                                   */
 /* ------------------------------------------------------------------------- */
 
-#define PLEXUS_SDK_VERSION "0.7.0"
+#define PLEXUS_SDK_VERSION "0.8.0"
 
 /* ------------------------------------------------------------------------- */
 /* Compiler attributes                                                       */
@@ -65,6 +65,12 @@ typedef enum {
     PLEXUS_ERR_NOT_INITIALIZED, /* Client not initialized */
     PLEXUS_ERR_HAL,             /* HAL layer error */
     PLEXUS_ERR_INVALID_ARG,     /* Invalid argument (bad characters, etc.) */
+#if PLEXUS_ENABLE_WEBSOCKET
+    PLEXUS_ERR_WS_NOT_CONNECTED, /* WebSocket not connected */
+    PLEXUS_ERR_WS_AUTH_TIMEOUT,  /* Auth handshake timed out */
+    PLEXUS_ERR_COMMAND_FULL,     /* Command registration table full */
+    PLEXUS_ERR_COMMAND_NOT_FOUND,/* Unknown command received */
+#endif
     PLEXUS_ERR__COUNT           /* Sentinel — must be last */
 } plexus_err_t;
 
@@ -125,6 +131,72 @@ typedef void (*plexus_status_callback_t)(plexus_conn_status_t status, void* user
 
 #endif /* PLEXUS_ENABLE_STATUS_CALLBACK */
 
+/* WebSocket types (when enabled) */
+#if PLEXUS_ENABLE_WEBSOCKET
+
+/** WebSocket connection state */
+typedef enum {
+    PLEXUS_WS_DISCONNECTED,
+    PLEXUS_WS_CONNECTING,
+    PLEXUS_WS_AUTHENTICATING,
+    PLEXUS_WS_CONNECTED,
+    PLEXUS_WS_RECONNECTING,
+} plexus_ws_state_t;
+
+/** Command parameter type (for schema advertisement) */
+typedef enum {
+    PLEXUS_PARAM_FLOAT,
+    PLEXUS_PARAM_INT,
+    PLEXUS_PARAM_STRING,
+    PLEXUS_PARAM_BOOL,
+    PLEXUS_PARAM_ENUM,
+} plexus_param_type_t;
+
+/** Command parameter descriptor */
+typedef struct {
+    char name[PLEXUS_MAX_COMMAND_NAME_LEN];
+    plexus_param_type_t type;
+    double min;         /* NAN = no min */
+    double max;         /* NAN = no max */
+    double default_val; /* NAN = required (no default) */
+    bool required;
+} plexus_param_t;
+
+/**
+ * Command handler callback.
+ *
+ * Called from plexus_tick() when the server sends a typed_command.
+ * Runs in the caller's task context — safe to use FreeRTOS, GPIO, etc.
+ *
+ * @param cmd_id       Opaque command ID (pass to plexus_command_respond)
+ * @param params_json  Raw JSON string of the params object (e.g. "{\"rpm\":1500}")
+ * @param user_data    Pointer passed at registration time
+ */
+typedef void (*plexus_command_handler_t)(
+    const char* cmd_id,
+    const char* params_json,
+    void* user_data
+);
+
+/** @internal Queued incoming command (ring buffer entry) */
+typedef struct {
+    char id[32];
+    char command[PLEXUS_MAX_COMMAND_NAME_LEN];
+    char params_json[PLEXUS_WS_RECV_BUFFER_SIZE];
+} plexus_cmd_msg_t;
+
+/** @internal Registered command descriptor */
+typedef struct {
+    char name[PLEXUS_MAX_COMMAND_NAME_LEN];
+    char description[64];
+    plexus_command_handler_t handler;
+    void* user_data;
+    plexus_param_t params[PLEXUS_MAX_COMMAND_PARAMS];
+    uint8_t param_count;
+} plexus_cmd_reg_t;
+
+#endif /* PLEXUS_ENABLE_WEBSOCKET */
+
 /** @internal Client struct — do not access members directly */
 struct plexus_client {
     char api_key[PLEXUS_MAX_API_KEY_LEN];
@@ -161,6 +233,45 @@ struct plexus_client {
 
 #if PLEXUS_ENABLE_THREAD_SAFE
     void* mutex;
+#endif
+
+#if PLEXUS_ENABLE_WEBSOCKET
+    /* WebSocket connection state */
+    char ws_endpoint[PLEXUS_MAX_ENDPOINT_LEN];
+    char org_id[PLEXUS_MAX_ORG_ID_LEN];
+    plexus_ws_state_t ws_state;
+    void* ws_handle;            /* Opaque HAL WebSocket handle */
+
+    /* Reconnection */
+    uint32_t ws_reconnect_backoff_ms;
+    uint32_t ws_reconnect_deadline;
+    uint32_t ws_stable_since;   /* Tick when last authenticated */
+    uint16_t ws_reconnect_count;
+
+    /* Heartbeat */
+    uint32_t ws_last_heartbeat_ms;
+
+    /* Event flags — written by HAL callback, read/cleared by tick */
+    volatile bool ws_evt_connected;
+    volatile bool ws_evt_disconnected;
+    volatile bool ws_evt_error;
+    volatile bool ws_evt_authenticated;
+
+    /* Incoming command ring buffer */
+    plexus_cmd_msg_t ws_cmd_queue[PLEXUS_COMMAND_QUEUE_SIZE];
+    volatile uint8_t ws_cmd_head;
+    volatile uint8_t ws_cmd_tail;
+
+    /* Registered command handlers */
+    plexus_cmd_reg_t ws_commands[PLEXUS_MAX_COMMANDS];
+    uint8_t ws_command_count;
+
+    /* Last dispatched command name (for plexus_command_respond) */
+    char ws_last_cmd_name[PLEXUS_MAX_COMMAND_NAME_LEN];
+
+    /* Transport mode flags */
+    bool ws_telemetry_enabled;  /* Send telemetry over WS (default true) */
+    bool http_persist_enabled;  /* Also send over HTTP for persistence */
 #endif
 };
 
@@ -494,6 +605,147 @@ void  plexus_hal_mutex_lock(void* mutex);
 void  plexus_hal_mutex_unlock(void* mutex);
 void  plexus_hal_mutex_destroy(void* mutex);
 #endif
+
+/* ========================================================================= */
+/* WebSocket API + HAL (opt-in via PLEXUS_ENABLE_WEBSOCKET)                  */
+/* ========================================================================= */
+
+#if PLEXUS_ENABLE_WEBSOCKET
+
+/* --- Connection lifecycle --- */
+
+/**
+ * Set the organization ID (required for WebSocket room routing).
+ * The PartyKit server routes to wss://.../party/{org_id}.
+ */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_set_org_id(plexus_client_t* client, const char* org_id);
+
+/**
+ * Initiate WebSocket connection. Non-blocking.
+ * The state machine is driven by plexus_tick().
+ * State transitions: DISCONNECTED → CONNECTING → AUTHENTICATING → CONNECTED.
+ */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_ws_connect(plexus_client_t* client);
+
+/**
+ * Disconnect from WebSocket server.
+ */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_ws_disconnect(plexus_client_t* client);
+
+/** Get current WebSocket connection state. */
+plexus_ws_state_t plexus_ws_state(const plexus_client_t* client);
+
+/* --- Command registration --- */
+
+/**
+ * Register a typed command handler.
+ *
+ * The command schema (name + params) is advertised to the server in the
+ * device_auth message. The dashboard renders a UI (button + param inputs)
+ * based on this schema.
+ *
+ * @param client      Plexus client
+ * @param name        Command name (e.g., "honk", "set_speed")
+ * @param description Human-readable description shown in dashboard (NULL for none)
+ * @param handler     Callback invoked from plexus_tick() when command arrives
+ * @param user_data   Passed to handler (e.g., client pointer for respond)
+ * @param params      Array of param descriptors, or NULL if no params
+ * @param param_count Number of params (0 if params is NULL)
+ * @return            PLEXUS_OK, or PLEXUS_ERR_COMMAND_FULL
+ */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_command_register(plexus_client_t* client, const char* name,
+                                      const char* description,
+                                      plexus_command_handler_t handler,
+                                      void* user_data,
+                                      const plexus_param_t* params,
+                                      uint8_t param_count);
+
+/**
+ * Send a command result back to the server.
+ *
+ * Call from within a command handler or asynchronously (save cmd_id).
+ *
+ * @param client      Plexus client
+ * @param cmd_id      Command ID from the handler callback
+ * @param result_json JSON object string, e.g. "{\"ok\":true}" — NULL on error
+ * @param error       Error message string — NULL on success
+ * @return            PLEXUS_OK on success
+ */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_command_respond(plexus_client_t* client, const char* cmd_id,
+                                     const char* result_json, const char* error);
+
+/* --- Transport mode --- */
+
+/** Enable/disable sending telemetry over WebSocket (default: true). */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_set_ws_telemetry(plexus_client_t* client, bool enabled);
+
+/** Enable/disable HTTP persistence alongside WebSocket (dual transport). */
+PLEXUS_WARN_UNUSED_RESULT
+plexus_err_t plexus_set_http_persist(plexus_client_t* client, bool enabled);
+
+/* --- Parameter descriptor helpers --- */
+
+/** Create a float parameter descriptor. */
+plexus_param_t plexus_param_float(const char* name, double min, double max);
+
+/** Create an int parameter descriptor. */
+plexus_param_t plexus_param_int(const char* name, double min, double max);
+
+/** Create a bool parameter descriptor. */
+plexus_param_t plexus_param_bool(const char* name);
+
+/* --- WebSocket HAL interface --- */
+
+/** WebSocket event types delivered to the SDK via callback. */
+typedef enum {
+    PLEXUS_WS_EVENT_CONNECTED,
+    PLEXUS_WS_EVENT_DISCONNECTED,
+    PLEXUS_WS_EVENT_DATA,
+    PLEXUS_WS_EVENT_ERROR,
+} plexus_ws_event_t;
+
+/**
+ * WebSocket event callback.
+ *
+ * Called from the platform's WS transport context (e.g., ESP-IDF event task).
+ * Implementation MUST only enqueue data — no blocking, no SDK calls.
+ *
+ * @param event     Event type
+ * @param data      Message data (only valid for PLEXUS_WS_EVENT_DATA)
+ * @param data_len  Data length in bytes
+ * @param user_data Opaque pointer passed to plexus_hal_ws_connect()
+ */
+typedef void (*plexus_ws_event_cb_t)(plexus_ws_event_t event,
+                                      const char* data, size_t data_len,
+                                      void* user_data);
+
+/**
+ * Open a WebSocket connection.
+ *
+ * @param url       Full WebSocket URL (e.g., "wss://realtime.plexusrt.dev/party/org_xxx")
+ * @param callback  Event callback for connection state and data
+ * @param user_data Passed to callback
+ * @return          Opaque handle, or NULL on failure
+ */
+void* plexus_hal_ws_connect(const char* url, plexus_ws_event_cb_t callback,
+                             void* user_data);
+
+/** Send a text frame over WebSocket. */
+plexus_err_t plexus_hal_ws_send(void* ws_handle, const char* data, size_t data_len);
+
+/** Close a WebSocket connection. Safe to call with NULL. */
+void plexus_hal_ws_close(void* ws_handle);
+
+/** Check if the WebSocket is currently connected. */
+bool plexus_hal_ws_is_connected(void* ws_handle);
+
+#endif /* PLEXUS_ENABLE_WEBSOCKET */
 
 #ifdef __cplusplus
 }

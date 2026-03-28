@@ -1,11 +1,29 @@
 # Build artifacts
 build*/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# ESP-IDF artifacts
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
 
 .claude
 
 # Doxygen output
 docs/
 
+# Certificates and keys
+*.pem
+*.key
+*.crt
+
+# Environment
+.env*
 
 # IDE
 .vscode/

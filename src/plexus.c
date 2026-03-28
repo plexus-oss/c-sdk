@@ -210,6 +210,10 @@ static plexus_client_t* client_init_common(plexus_client_t* client,
     client->mutex = plexus_hal_mutex_create();
 #endif
 
+#if PLEXUS_ENABLE_WEBSOCKET
+    plexus_ws_init_state(client);
+#endif
+
 #if PLEXUS_DEBUG
     plexus_hal_log("Plexus SDK v%s initialized (source: %s, client size: %u bytes)",
                    PLEXUS_SDK_VERSION, source_id, (unsigned)sizeof(plexus_client_t));
@@ -279,6 +283,10 @@ void plexus_free(plexus_client_t* client) {
     if (!client) {
         return;
     }
+
+#if PLEXUS_ENABLE_WEBSOCKET
+    plexus_ws_cleanup(client);
+#endif
 
 #if PLEXUS_ENABLE_THREAD_SAFE
     if (client->mutex) {
@@ -744,6 +752,27 @@ plexus_err_t plexus_flush(plexus_client_t* client) {
     plexus_hal_log("Sending %d metrics (%d bytes)", client->metric_count, json_len);
 #endif
 
+#if PLEXUS_ENABLE_WEBSOCKET
+    /* WebSocket path — send via WS if connected and enabled */
+    if (client->ws_telemetry_enabled && client->ws_state == PLEXUS_WS_CONNECTED) {
+        plexus_err_t ws_err = plexus_ws_send_telemetry(client);
+        if (ws_err == PLEXUS_OK) {
+            if (!client->http_persist_enabled) {
+                /* WS-only mode — clear metrics and done */
+                client->total_sent += client->metric_count;
+                client->metric_count = 0;
+                client->last_flush_ms = plexus_hal_get_tick_ms();
+                PLEXUS_UNLOCK(client);
+                return PLEXUS_OK;
+            }
+            /* Dual transport: WS delivered to dashboard.
+             * Fall through to HTTP for persistence (metrics still in buffer).
+             * HTTP path will clear metrics on success. */
+        }
+        /* If WS send failed, fall through to HTTP path as fallback */
+    }
+#endif
+
     /* Send with retries and exponential backoff */
     plexus_err_t err = PLEXUS_ERR_NETWORK;
     client->retry_backoff_ms = 0; /* Reset backoff for this flush attempt */
@@ -891,6 +920,11 @@ plexus_err_t plexus_tick(plexus_client_t* client) {
     if (!client->initialized) {
         return PLEXUS_ERR_NOT_INITIALIZED;
     }
+
+#if PLEXUS_ENABLE_WEBSOCKET
+    /* Drive WebSocket state machine (connect, heartbeat, commands) */
+    plexus_ws_tick(client);
+#endif
 
     PLEXUS_LOCK(client);
 

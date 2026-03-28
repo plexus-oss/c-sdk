@@ -16,12 +16,19 @@ cmake_minimum_required(VERSION 3.10)
 # Check if building as ESP-IDF component
 if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
     # ESP-IDF component mode
+    #
+    # WebSocket files are always included — they compile to empty when
+    # PLEXUS_ENABLE_WEBSOCKET=0 (the default) thanks to #if guards.
+    # This avoids CMake ordering issues where the define isn't visible
+    # at component registration time.
     idf_component_register(
         SRCS
             "src/plexus.c"
             "src/plexus_json.c"
+            "src/plexus_ws.c"
             "hal/esp32/plexus_hal_esp32.c"
             "hal/esp32/plexus_hal_storage_esp32.c"
+            "hal/esp32/plexus_hal_ws_esp32.c"
         INCLUDE_DIRS
             "src"
         REQUIRES
@@ -34,7 +41,7 @@ if(DEFINED ENV{IDF_PATH} OR IDF_TARGET)
 endif()
 
 # Standalone CMake build
-project(plexus-sdk VERSION 0.7.0 LANGUAGES C CXX)
+project(plexus-sdk VERSION 0.8.0 LANGUAGES C CXX)
 
 # Options
 option(PLEXUS_BUILD_EXAMPLES "Build example applications" OFF)
@@ -49,6 +56,12 @@ set(PLEXUS_SOURCES
     src/plexus.c
     src/plexus_json.c
 )
+
+# WebSocket sources (only if enabled)
+option(PLEXUS_ENABLE_WEBSOCKET "Enable WebSocket transport" OFF)
+if(PLEXUS_ENABLE_WEBSOCKET)
+    list(APPEND PLEXUS_SOURCES src/plexus_ws.c)
+endif()
 
 # Platform-specific HAL
 if(PLEXUS_PLATFORM STREQUAL "esp32")
