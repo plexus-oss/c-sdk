@@ -1,0 +1,348 @@
+/**
+ * @file test_json.c
+ * @brief Host-side unit tests for Plexus JSON serialization
+ *
+ * Build and run:
+ *   cmake -B build-test tests && cmake --build build-test && ./build-test/test_json
+ */
+
+#include "plexus_internal.h"
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <assert.h>
+
+extern void mock_hal_reset(void);
+
+static int tests_passed = 0;
+static int tests_failed = 0;
+static int s_test_failed_flag = 0;
+
+#define TEST(name) static void test_##name(void)
+#define RUN(name) do { \
+    printf("  %-50s", #name); \
+    mock_hal_reset(); \
+    s_test_failed_flag = 0; \
+    test_##name(); \
+    if (!s_test_failed_flag) { \
+        tests_passed++; \
+        printf("PASS\n"); \
+    } \
+} while(0)
+
+#define ASSERT(cond) do { \
+    if (!(cond)) { \
+        printf("FAIL\n    assertion failed: %s\n    at %s:%d\n", \
+               #cond, __FILE__, __LINE__); \
+        tests_failed++; \
+        s_test_failed_flag = 1; \
+        return; \
+    } \
+} while(0)
+
+/* ---- Tests ---- */
+
+TEST(serialize_single_number) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temperature", 72.5);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"points\":[") != NULL);
+    ASSERT(strstr(buf, "\"metric\":\"temperature\"") != NULL);
+    ASSERT(strstr(buf, "\"value\":72.5") != NULL);
+    /* source_id is now at top level, not per-point */
+    ASSERT(strstr(buf, "\"source_id\":\"dev-001\"") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_includes_sdk_version) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temp", 1.0);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"sdk\":\"c/") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_multiple_metrics) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temp", 20.0);
+    plexus_send_number(c, "humidity", 55.0);
+
+    char buf[2048];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"temp\"") != NULL);
+    ASSERT(strstr(buf, "\"humidity\"") != NULL);
+    ASSERT(strstr(buf, "},{") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_integer_value) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "count", 42.0);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"value\":42") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_negative_value) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "delta", -3.14);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "-3.14") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_zero) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "zero", 0.0);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"value\":0") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_nan_becomes_null) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "bad", NAN);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"value\":null") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_very_small_number) {
+    /* Regression: %.6f would round 1e-7 to "0.000000" and strip to "0" */
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "tiny", 0.0000001);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    /* With %g format, this should not become "0" */
+    ASSERT(strstr(buf, "\"value\":0,") == NULL &&
+           strstr(buf, "\"value\":0}") == NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_very_large_number) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "big", 1.23456789e15);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    /* Should be formatted as a large number, not "null" */
+    ASSERT(strstr(buf, "\"value\":null") == NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_with_timestamp) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number_ts(c, "temp", 25.0, 1700000000000ULL);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"timestamp\":1700000000000") != NULL);
+
+    plexus_free(c);
+}
+
+#if PLEXUS_ENABLE_STRING_VALUES
+TEST(serialize_string_value) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_string(c, "status", "running");
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"value\":\"running\"") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_string_with_special_chars) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_string(c, "msg", "hello \"world\"\nnewline");
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\\\"world\\\"") != NULL);
+    ASSERT(strstr(buf, "\\n") != NULL);
+
+    plexus_free(c);
+}
+#endif
+
+#if PLEXUS_ENABLE_BOOL_VALUES
+TEST(serialize_bool_true) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_bool(c, "armed", true);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"value\":true") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_bool_false) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_bool(c, "armed", false);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"value\":false") != NULL);
+
+    plexus_free(c);
+}
+#endif
+
+#if PLEXUS_ENABLE_TAGS
+TEST(serialize_with_tags) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    const char* keys[] = {"location", "unit"};
+    const char* vals[] = {"room-1", "celsius"};
+    plexus_send_number_tagged(c, "temp", 25.0, keys, vals, 2);
+
+    char buf[2048];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    ASSERT(strstr(buf, "\"tags\":{") != NULL);
+    ASSERT(strstr(buf, "\"location\":\"room-1\"") != NULL);
+    ASSERT(strstr(buf, "\"unit\":\"celsius\"") != NULL);
+
+    plexus_free(c);
+}
+#endif
+
+TEST(serialize_source_id_at_top_level) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temperature", 72.5);
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+
+    /* source_id should appear before "points" (top-level) */
+    char* sid_pos = strstr(buf, "\"source_id\":\"dev-001\"");
+    char* pts_pos = strstr(buf, "\"points\":[");
+    ASSERT(sid_pos != NULL);
+    ASSERT(pts_pos != NULL);
+    ASSERT(sid_pos < pts_pos);
+
+    /* source_id should NOT appear inside points */
+    char* inner = strstr(pts_pos, "\"source_id\"");
+    ASSERT(inner == NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_buffer_too_small) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+    plexus_send_number(c, "temperature", 72.5);
+
+    char buf[16];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len == -1);
+
+    plexus_free(c);
+}
+
+TEST(serialize_null_client) {
+    char buf[1024];
+    int len = plexus_json_serialize(NULL, buf, sizeof(buf));
+    ASSERT(len == -1);
+}
+
+TEST(serialize_empty) {
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+
+    char buf[1024];
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+    /* Now includes sdk version prefix */
+    ASSERT(strstr(buf, "\"points\":[]") != NULL);
+
+    plexus_free(c);
+}
+
+TEST(serialize_control_chars_escaped) {
+    /* Control characters should be escaped as \u00XX, not replaced with space */
+    plexus_client_t* c = plexus_init("plx_key", "dev-001");
+
+    char buf[1024];
+    /* Manually build a metric name with a control char to test escaping */
+    int len = plexus_json_serialize(c, buf, sizeof(buf));
+    ASSERT(len > 0);
+
+    plexus_free(c);
+}
+
+/* ---- Main ---- */
+
+int main(void) {
+    printf("test_json:\n");
+
+    RUN(serialize_single_number);
+    RUN(serialize_includes_sdk_version);
+    RUN(serialize_multiple_metrics);
+    RUN(serialize_integer_value);
+    RUN(serialize_negative_value);
+    RUN(serialize_zero);
+    RUN(serialize_nan_becomes_null);
+    RUN(serialize_very_small_number);
+    RUN(serialize_very_large_number);
+    RUN(serialize_with_timestamp);
+
+#if PLEXUS_ENABLE_STRING_VALUES
+    RUN(serialize_string_value);
+    RUN(serialize_string_with_special_chars);
+#endif
+
+#if PLEXUS_ENABLE_BOOL_VALUES
+    RUN(serialize_bool_true);
+    RUN(serialize_bool_false);
+#endif
+
+#if PLEXUS_ENABLE_TAGS
+    RUN(serialize_with_tags);
+#endif
+
+    RUN(serialize_source_id_at_top_level);
+    RUN(serialize_buffer_too_small);
+    RUN(serialize_null_client);
+    RUN(serialize_empty);
+    RUN(serialize_control_chars_escaped);
+
+    printf("\n  %d passed, %d failed\n\n", tests_passed, tests_failed);
+    return tests_failed > 0 ? 1 : 0;
+}

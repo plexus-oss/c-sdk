@@ -1,0 +1,99 @@
+{
+  "name": "plexus-c",
+  "version": "0.1.0",
+  "description": "Minimal footprint IoT telemetry SDK. Stream sensor data to a real-time dashboard from ESP32, STM32, and Arduino. ~1.5KB RAM, zero dependencies, built-in retry and buffering.",
+  "keywords": [
+    "telemetry",
+    "iot",
+    "embedded",
+    "esp32",
+    "stm32",
+    "arduino",
+    "monitoring",
+    "dashboard",
+    "sensors",
+    "bme280",
+    "real-time"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plexus-oss/plexus-c.git"
+  },
+  "authors": [
+    {
+      "name": "Plexus Team",
+      "url": "https://plexus.company"
+    }
+  ],
+  "license": "Apache-2.0",
+  "homepage": "https://plexus.company",
+  "frameworks": [
+    "arduino",
+    "espidf",
+    "stm32cube"
+  ],
+  "platforms": [
+    "espressif32",
+    "espressif8266",
+    "ststm32"
+  ],
+  "headers": "plexus.hpp",
+  "build": {
+    "srcDir": ".",
+    "srcFilter": [
+      "+<src/>",
+      "+<hal/arduino/>",
+      "-<tests/>",
+      "-<examples/>",
+      "-<build-*/>",
+      "-<hal/esp32/>",
+      "-<hal/stm32/>",
+      "-<hal/template/>"
+    ],
+    "includeDir": "src",
+    "flags": [
+      "-DPLEXUS_MAX_METRICS=32",
+      "-DPLEXUS_JSON_BUFFER_SIZE=2048"
+    ]
+  },
+  "export": {
+    "include": [
+      "src/*.h",
+      "src/*.hpp",
+      "src/*",
+      "hal/*",
+      "examples/*",
+      "CMakeLists.txt",
+      "README.md",
+      "LICENSE"
+    ]
+  },
+  "examples": [
+    {
+      "name": "BasicTelemetry",
+      "base": "examples/BasicTelemetry",
+      "files": ["BasicTelemetry.ino"]
+    },
+    {
+      "name": "BME280_Dashboard",
+      "base": "examples/BME280_Dashboard",
+      "files": ["BME280_Dashboard.ino"]
+    },
+    {
+      "name": "WiFiReconnect",
+      "base": "examples/WiFiReconnect",
+      "files": ["WiFiReconnect.ino"]
+    },
+    {
+      "name": "SessionRecording",
+      "base": "examples/SessionRecording",
+      "files": ["SessionRecording.ino"]
+    },
+    {
+      "name": "esp32_basic",
+      "base": "examples/esp32_basic",
+      "files": ["main.c"]
+    }
+  ],
+  "dependencies": {}
+}
