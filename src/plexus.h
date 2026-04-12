@@ -358,7 +358,7 @@ void plexus_free(plexus_client_t* client);
  * Set custom ingest endpoint URL.
  *
  * @param client   Plexus client
- * @param endpoint Full URL (e.g., "https://custom.domain/api/ingest")
+ * @param endpoint Full URL (e.g., "https://your-gateway.example.com/ingest")
  * @return         PLEXUS_OK on success
  */
 PLEXUS_WARN_UNUSED_RESULT
@@ -615,8 +615,8 @@ void  plexus_hal_mutex_destroy(void* mutex);
 /* --- Connection lifecycle --- */
 
 /**
- * Set the organization ID (required for WebSocket room routing).
- * The PartyKit server routes to wss://.../party/{org_id}.
+ * Set the organization ID (optional — gateway resolves from API key by default).
+ * Only needed if using a self-hosted gateway that requires explicit org routing.
  */
 PLEXUS_WARN_UNUSED_RESULT
 plexus_err_t plexus_set_org_id(plexus_client_t* client, const char* org_id);

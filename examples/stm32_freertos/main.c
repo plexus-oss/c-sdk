@@ -45,7 +45,7 @@
 #define PLEXUS_SOURCE_ID "stm32-sensor-001"
 
 /* Use HTTP endpoint (STM32 HAL does not support HTTPS without mbedTLS) */
-#define PLEXUS_HTTP_ENDPOINT "http://app.plexus.company/api/ingest"
+#define PLEXUS_HTTP_ENDPOINT "https://plexus-gateway.fly.dev/ingest"
 
 #define TELEMETRY_INTERVAL_MS 5000
 

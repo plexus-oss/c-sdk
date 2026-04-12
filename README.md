@@ -131,7 +131,7 @@ plexus_clear(px);              // discard queue
 ### Config
 
 ```c
-plexus_set_endpoint(px, "https://custom.domain/api/ingest");
+plexus_set_endpoint(px, "https://your-gateway.example.com/ingest");
 plexus_set_flush_interval(px, 10000);  // auto-flush every 10s
 plexus_set_flush_count(px, 8);         // auto-flush after 8 metrics
 ```
@@ -237,7 +237,7 @@ The STM32 HAL ships with plain HTTP. For production, add HTTPS via mbedTLS + LwI
 
 **3. Replace socket calls** in `plexus_hal_stm32.c` with `altcp` equivalents — `altcp_new`, `altcp_connect`, `altcp_write`, `altcp_output`. See the `altcp_tls` section in the [LwIP docs](https://www.nongnu.org/lwip/2_1_x/group__altcp__tls.html).
 
-**4. Load root CA certificate** for `app.plexus.company` to verify the server.
+**4. Load root CA certificate** for `plexus-gateway.fly.dev` to verify the server.
 
 Alternatively, use a TLS-terminating reverse proxy (e.g., nginx) on your network edge and keep the HAL as-is with HTTP.
 

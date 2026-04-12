@@ -58,7 +58,7 @@
  *   - MUST return PLEXUS_ERR_NETWORK    on connection failure or other errors
  *   - SHOULD respect PLEXUS_HTTP_TIMEOUT_MS for connect/read timeouts
  *
- * @param url        Full URL (e.g., "https://app.plexus.company/api/ingest")
+ * @param url        Full URL (e.g., "https://plexus-gateway.fly.dev/ingest")
  * @param api_key    API key string for the x-api-key header
  * @param user_agent User-Agent header value (e.g., "plexus-c-sdk/0.5.0")
  * @param body       JSON request body (null-terminated)

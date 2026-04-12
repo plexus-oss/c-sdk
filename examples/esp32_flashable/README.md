@@ -46,7 +46,7 @@ Device sends:  PLEXUS:SAVED
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `endpoint` | Custom Plexus API endpoint | `https://app.plexus.company/api/ingest` |
+| `endpoint` | Custom Plexus API endpoint | `https://plexus-gateway.fly.dev/ingest` |
 
 ## LED Status
 

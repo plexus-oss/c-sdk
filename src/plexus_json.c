@@ -405,7 +405,7 @@ int plexus_json_serialize_command_result(const char* cmd_id, const char* command
 /* ========================================================================= */
 /* Minimal JSON field extraction                                             */
 /*                                                                           */
-/* Purpose-built for parsing PartyKit server messages. NOT a general parser. */
+/* Purpose-built for parsing gateway WebSocket messages. NOT a general parser. */
 /* Handles flat objects with string values. Sufficient for extracting        */
 /* "type", "id", "command", "params" from typed_command messages.            */
 /* ========================================================================= */
