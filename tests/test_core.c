@@ -96,9 +96,13 @@ TEST(init_valid_source_ids) {
     ASSERT(c != NULL);
     plexus_free(c);
 
-    c = plexus_init("plx_key", "MiXeD.CaSe-123");
+    c = plexus_init("plx_key", "mixed.case-123");
     ASSERT(c != NULL);
     plexus_free(c);
+
+    /* Uppercase is rejected — gateway slug regex is ^[a-z0-9][a-z0-9._-]*$ */
+    c = plexus_init("plx_key", "MiXeD.CaSe-123");
+    ASSERT(c == NULL);
 }
 
 TEST(init_static_works) {
